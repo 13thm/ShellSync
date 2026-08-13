@@ -23,18 +23,24 @@ go build -o bin/shellsync-daemon ./cmd/shellsync-daemon
 
 按 `Ctrl+C` 优雅退出。
 
-## 当前状态（M1-1 骨架）
+## 当前状态（M1 ✅ + M2 ✅ 完成）
 
 - [x] 目录结构 / go module
 - [x] main 入口（打印 banner + 等待信号）
 - [x] M1-2 配置加载
-- [ ] M1-3 生命周期 / lock
+- [x] M1-3 生命周期 / lock (✅ M1 完成)
 - [x] M1-4 SQLite + 迁移
 - [x] M1-5 repository
 - [x] M1-6 pty 抽象
 - [x] M1-7 logstore
 - [x] M1-8 terminal manager
-- [ ] M2 接口层（REST + WS）
+- [x] M2-1 service 领域层（状态机 + 事件）
+- [x] M2-2 HTTP/REST（全套端点 + health + shutdown）
+- [x] M2-3 auth（本地 token + 设备 token）
+- [x] M2-4 配对（二维码 + /pair/*）
+- [x] M2-5 WebSocket（终端实时流 + 历史回放）
+- [x] M2-6 sync 事件总线（实体变更广播）
+- [ ] M3 Desktop 客户端
 
 ## 目录结构
 

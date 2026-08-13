@@ -11,10 +11,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/shellsync/daemon/internal/auth"
 	"github.com/shellsync/daemon/internal/config"
+	"github.com/shellsync/daemon/internal/eventbus"
+	"github.com/shellsync/daemon/internal/lifecycle"
 	"github.com/shellsync/daemon/internal/logstore"
 	"github.com/shellsync/daemon/internal/repository"
+	"github.com/shellsync/daemon/internal/service"
 	"github.com/shellsync/daemon/internal/terminal"
+	transporthttp "github.com/shellsync/daemon/internal/transport/http"
+	"github.com/shellsync/daemon/internal/transport/ws"
 )
 
 // Version is the daemon version. It is overridden at build time via
@@ -30,6 +36,8 @@ func main() {
 }
 
 func run() error {
+	startedAt := time.Now()
+
 	// --- M1-2: configuration ---
 	cfg, err := config.Load()
 	if err != nil {
@@ -39,10 +47,22 @@ func run() error {
 	slog.Info("config loaded",
 		"dataDir", cfg.DataDir,
 		"httpPort", cfg.HTTPPort,
-		"wsPort", cfg.WSPort,
 		"logLevel", cfg.LogLevel,
 		"logRetention", cfg.LogRetention,
 	)
+
+	// --- M1-3: single instance lock ---
+	lock, err := lifecycle.Acquire(lifecycle.LockPath(cfg.DataDir))
+	if err != nil {
+		if errors.Is(err, lifecycle.ErrAlreadyRunning) {
+			slog.Info("another daemon instance is already running, exiting", "err", err)
+			fmt.Println("ShellSync daemon is already running.")
+			return nil
+		}
+		return fmt.Errorf("acquire lock: %w", err)
+	}
+	defer lock.Release()
+	slog.Info("lock acquired", "path", lock.Path(), "pid", os.Getpid())
 
 	// --- M1-4: database ---
 	db, err := repository.Open(cfg.DBPath())
@@ -54,7 +74,6 @@ func run() error {
 			slog.Error("close db", "err", cErr)
 		}
 	}()
-	slog.Info("database opened", "path", cfg.DBPath())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -68,8 +87,13 @@ func run() error {
 	slog.Info("database ready")
 
 	// --- M1-5/7/8: terminal subsystem ---
-	termRepo := repository.NewTerminalRepo(db)
+	taskRepo := repository.NewTaskRepo(db)
+	terminalRepo := repository.NewTerminalRepo(db)
+	todoRepo := repository.NewTodoRepo(db)
 	logRepo := repository.NewLogRepo(db)
+	deviceRepo := repository.NewDeviceRepo(db)
+	settingsRepo := repository.NewSettingsRepo(db)
+
 	logMgr := logstore.NewManager(logRepo, logstore.Config{
 		FlushWindow:   16 * time.Millisecond,
 		MaxChunkBytes: 16 * 1024,
@@ -77,27 +101,60 @@ func run() error {
 	})
 	defer logMgr.CloseAll()
 
-	termMgr := terminal.NewManager(termRepo, logMgr)
+	termMgr := terminal.NewManager(terminalRepo, logMgr)
 	defer termMgr.CloseAll()
 
-	recovered, err := termMgr.RecoverOnStartup(ctx)
-	if err != nil {
+	if recovered, err := termMgr.RecoverOnStartup(ctx); err != nil {
 		return fmt.Errorf("recover: %w", err)
-	}
-	if recovered > 0 {
+	} else if recovered > 0 {
 		slog.Info("recovered stale terminals", "count", recovered)
 	}
 
-	// TODO(M1-3): acquire lock file (single instance) + structured shutdown wiring
-	// TODO(M2): mount HTTP + WebSocket servers
+	// --- M2: services / auth / events / servers ---
+	bus := eventbus.New()
+	svc := service.New(service.Deps{
+		UserID:       repository.DefaultUserID,
+		TaskRepo:     taskRepo,
+		TerminalRepo: terminalRepo,
+		TodoRepo:     todoRepo,
+		LogRepo:      logRepo,
+		DeviceRepo:   deviceRepo,
+		SettingsRepo: settingsRepo,
+		TermMgr:      termMgr,
+		LogMgr:       logMgr,
+		Bus:          bus,
+	})
+	verifier := auth.NewVerifier(lock.Token(), deviceRepo)
+	wsHub := ws.NewHub(verifier, svc.Terminals, logMgr, bus)
 
-	slog.Info("daemon started", "version", Version, "pid", os.Getpid())
-	fmt.Printf("ShellSync daemon %s ready (pid=%d, data=%s)\n", Version, os.Getpid(), cfg.DataDir)
+	httpServer := transporthttp.New(transporthttp.Deps{
+		Version:   Version,
+		StartedAt: startedAt,
+		Svc:       svc,
+		Auth:      verifier,
+		WS:        wsHub,
+		Shutdown:  stop,
+	})
+
+	port, shutdownHTTP, err := transporthttp.Serve(httpServer.Handler(), cfg.HTTPPort)
+	if err != nil {
+		return fmt.Errorf("serve http: %w", err)
+	}
+	if err := lock.SetPort(port); err != nil {
+		slog.Warn("write port to lock", "err", err)
+	}
+	svc.Pair.SetPort(port)
+	slog.Info("http listening", "port", port, "token", lock.Token())
+
+	fmt.Printf("ShellSync daemon %s ready (pid=%d, port=%d, data=%s)\n", Version, os.Getpid(), port, cfg.DataDir)
 
 	<-ctx.Done()
 	slog.Info("shutdown signal received, exiting gracefully")
-	if err := ctx.Err(); err != nil && !errors.Is(err, context.Canceled) {
-		return err
+
+	shutCtx, cancelShut := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelShut()
+	if err := shutdownHTTP(shutCtx); err != nil {
+		slog.Warn("http shutdown", "err", err)
 	}
 	return nil
 }

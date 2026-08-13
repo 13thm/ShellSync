@@ -1,0 +1,120 @@
+/**
+ * ShellSync 桌面端 · 全局基础样式
+ * ------------------------------------------------------------------
+ * 在 tokens.css 之后引入：`import './styles/base.css'`。
+ * 提供全局 reset、页面底色、系统字体、原生比例滚动条、文本选区色。
+ * 不含任何组件样式（组件用 .vue scoped 各自实现）。
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-base);
+  color: var(--color-text-primary);
+  background: var(--color-bg-page); /* 极浅冷灰，比纯白通透不刺眼 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* 桌面应用：禁止文本被选中拖蓝（表单/代码区按需单独放开） */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 允许选中的区域：代码、终端、输入、详情文本 */
+input,
+textarea,
+[contenteditable],
+.selectable,
+pre,
+code {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--motion-fast);
+}
+a:hover {
+  color: var(--color-primary-hover);
+}
+
+/* 文本选区色（主色淡背景） */
+::selection {
+  background: var(--color-primary-bg);
+  color: var(--color-text-primary);
+}
+
+/* ============================================================
+ * 原生滚动条（系统感，6px 半透明灰）
+ * ============================================================ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+}
+
+/* ============================================================
+ * 焦点可见性（键盘可达，无障碍）
+ * 仅键盘聚焦时显示主色外圈，鼠标点击不显示。
+ * ============================================================ */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* 通用工具类 ------------------------------------------------ */
+
+/* 文本省略（单行） */
+.text-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 等宽字（终端 / 代码 / 端口结果） */
+.font-mono {
+  font-family: var(--font-family-mono);
+}
