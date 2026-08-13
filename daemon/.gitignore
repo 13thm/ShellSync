@@ -1,0 +1,18 @@
+# binaries
+/bin/
+*.exe
+*.exe~
+
+# build output
+/shellsync-daemon
+/shellsync-daemon.exe
+
+# runtime data (do not commit)
+*.db
+*.db-wal
+*.db-shm
+
+# editor / os
+.idea/
+.vscode/
+.DS_Store
