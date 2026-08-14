@@ -98,6 +98,8 @@ export const todosApi = {
 export const devicesApi = {
   list: () => http().get<Device[]>('/api/devices').then((r) => r.data),
   revoke: (id: string) => http().delete(`/api/devices/${id}`).then((r) => r.data),
+  delete: (id: string) =>
+    http().delete(`/api/devices/${id}`, { params: { mode: 'delete' } }).then((r) => r.data),
 }
 
 export const settingsApi = {

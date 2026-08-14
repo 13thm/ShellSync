@@ -21,6 +21,11 @@ export const useRealtimeStore = defineStore('realtime', () => {
     client.onState = (c) => {
       if (c) wsSession.value++ // connection (re)established → views may resubscribe
       onState(c)
+      if (c) {
+        stopWatchdog()
+      } else {
+        startWatchdog()
+      }
     }
     if (refresh) client.refresh = refresh
 
@@ -42,6 +47,32 @@ export const useRealtimeStore = defineStore('realtime', () => {
 
     client.connect()
     ws.value = client
+  }
+
+  // ── 看门狗：断线超过 10 秒仍未恢复 → 丢弃旧连接，重新解析地址整体重建 ──
+  let watchdogTimer: number | null = null
+  function startWatchdog() {
+    if (watchdogTimer != null) return
+    watchdogTimer = window.setTimeout(async () => {
+      watchdogTimer = null
+      const client = ws.value
+      if (!client || client.isConnected) return
+      console.warn('[ws] watchdog: still offline after 10s, rebuilding connection')
+      try {
+        const fresh = (await client.refresh?.()) ?? null
+        if (fresh) client.updateEndpoint(fresh.url, fresh.token)
+      } catch {
+        /* keep last known endpoint */
+      }
+      client.forceReconnect()
+      startWatchdog()
+    }, 10000)
+  }
+  function stopWatchdog() {
+    if (watchdogTimer != null) {
+      window.clearTimeout(watchdogTimer)
+      watchdogTimer = null
+    }
   }
 
   return { ws, wsSession, init, set onState(fn: (c: boolean) => void) { onState = fn } }

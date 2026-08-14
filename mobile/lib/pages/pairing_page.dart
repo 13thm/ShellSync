@@ -19,6 +19,8 @@ class _PairingPageState extends State<PairingPage> {
   _PairMode _mode = _PairMode.chooser;
   bool _busy = false;
   String? _error;
+  final int _scanAttempt = 0; // 相机重建计数（key 用，保持稳定）
+  MobileScannerController? _scannerCtrl; // 显式 controller：进入扫码时创建，退出时销毁
 
   final _ipCtrl = TextEditingController();
   final _portCtrl = TextEditingController();
@@ -26,6 +28,8 @@ class _PairingPageState extends State<PairingPage> {
 
   @override
   void dispose() {
+    _scannerCtrl?.dispose();
+    _scannerCtrl = null;
     _ipCtrl.dispose();
     _portCtrl.dispose();
     _codeCtrl.dispose();
@@ -71,10 +75,28 @@ class _PairingPageState extends State<PairingPage> {
     return (ip, port, code);
   }
 
-  void _backToChooser() => setState(() {
-        _mode = _PairMode.chooser;
-        _error = null;
-      });
+  /// 进入扫码模式：创建 controller（禁用自动启动）并显式 start。
+  Future<void> _enterScan() async {
+    final ctrl = MobileScannerController(autoStart: false);
+    _scannerCtrl = ctrl;
+    setState(() => _mode = _PairMode.scan);
+    try {
+      await ctrl.start(); // 显式启动相机（含权限请求）
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = '相机启动失败：$e');
+      }
+    }
+  }
+
+  void _backToChooser() {
+    _scannerCtrl?.dispose();
+    _scannerCtrl = null;
+    setState(() {
+      _mode = _PairMode.chooser;
+      _error = null;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -125,7 +147,7 @@ class _PairingPageState extends State<PairingPage> {
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-            onPressed: () => setState(() => _mode = _PairMode.scan),
+            onPressed: _enterScan,
             icon: const Icon(Icons.qr_code_scanner, size: 22),
             label: const Text('扫码配对', style: TextStyle(fontSize: 16)),
           ),
@@ -158,7 +180,43 @@ class _PairingPageState extends State<PairingPage> {
   Widget _scannerView() {
     return Stack(
       children: [
-        MobileScanner(onDetect: _onDetect),
+        MobileScanner(
+          key: ValueKey(_scanAttempt),
+          controller: _scannerCtrl,
+          onDetect: _onDetect,
+          errorBuilder: (context, error) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.no_photography, size: 48, color: Color(0xFF86909C)),
+                    const SizedBox(height: 12),
+                    Text(
+                      '相机无法启动：${error.errorCode.name}\n${error.errorDetails?.message ?? "未知原因"}\n请在系统设置中授予相机权限，\n或改用手动输入配对信息',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Color(0xFF86909C), fontSize: 13, height: 1.6),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: () {
+                        _scannerCtrl?.dispose();
+                        _enterScan(); // 完全重建相机
+                      },
+                      child: const Text('重试相机'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () => setState(() => _mode = _PairMode.manual),
+                      child: const Text('改用手动输入'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
         Positioned(
           left: 0,
           right: 0,

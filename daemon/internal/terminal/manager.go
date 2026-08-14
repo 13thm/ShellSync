@@ -110,6 +110,8 @@ func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*Session, error)
 	_ = m.logMgr.Register(ctx, term.ID)
 
 	sess := newSession(m, term.ID, p)
+	sess.cols, sess.rows = opts.Cols, opts.Rows // record initial PTY size
+	sess.screen = NewScreen(opts.Cols, opts.Rows)
 	m.register(term.ID, sess)
 	sess.start()
 	return sess, nil
@@ -170,6 +172,8 @@ func (m *Manager) Restart(ctx context.Context, id string) (*Session, error) {
 	_ = m.logMgr.Register(ctx, id) // continue sequence after existing logs
 
 	sess := newSession(m, id, p)
+	sess.cols, sess.rows = term.Cols, term.Rows // record initial PTY size
+	sess.screen = NewScreen(term.Cols, term.Rows)
 	m.register(id, sess)
 	sess.start()
 	return sess, nil

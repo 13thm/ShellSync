@@ -58,7 +58,17 @@ async function loadDevices() {
 }
 onMounted(loadDevices)
 async function revoke(id: string) {
+  const d = devices.value.find((x) => x.id === id)
+  if (!d) return
+  if (!window.confirm(`吊销「${d.name}」？\n该手机将立即断开，无法再访问本机（可重新扫码配对）。`)) return
   await devicesApi.revoke(id)
+  await loadDevices()
+}
+async function removeDevice(id: string) {
+  const d = devices.value.find((x) => x.id === id)
+  if (!d) return
+  if (!window.confirm(`删除设备「${d.name}」？\n记录将从列表中移除。`)) return
+  await devicesApi.delete(id)
   await loadDevices()
 }
 
@@ -98,6 +108,7 @@ async function saveGeneral() {
     </AppCard>
 
     <AppCard title="已配对设备">
+      <p class="card-desc">已配对的手机可远程访问本机终端。吊销后手机立即断开（可重新扫码）；删除则从列表移除记录。</p>
       <EmptyState v-if="devices.length === 0" text="还没有配对的设备" />
       <AppListItem
         v-for="d in devices"
@@ -107,9 +118,12 @@ async function saveGeneral() {
         :disabled="d.revoked"
       >
         <template #extra>
-          <AppButton v-if="!d.revoked" type="text" size="small" danger @click="revoke(d.id)">
-            <Trash2 :size="14" :stroke-width="1.75" /> 吊销
-          </AppButton>
+          <div class="device-actions">
+            <AppButton v-if="!d.revoked" type="text" size="small" danger @click="revoke(d.id)">
+              吊销
+            </AppButton>
+            <AppButton type="text" size="small" @click="removeDevice(d.id)">删除</AppButton>
+          </div>
         </template>
       </AppListItem>
     </AppCard>
@@ -164,4 +178,5 @@ async function saveGeneral() {
 .num { width: 90px; }
 .muted { color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
 .about { color: var(--color-text-tertiary); font-size: var(--font-size-sm); }
+.device-actions { display: flex; align-items: center; gap: 2px; }
 </style>

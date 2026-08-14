@@ -48,8 +48,12 @@ func New(d Deps) *Services {
 		Terminals: &TerminalService{mgr: d.TermMgr, repo: d.TerminalRepo, logMgr: d.LogMgr, bus: d.Bus, userID: d.UserID},
 		Pair:      &PairService{deviceRepo: d.DeviceRepo, userID: d.UserID, codes: map[string]pairCode{}},
 		Settings:  &SettingsService{repo: d.SettingsRepo},
-		Devices:   &DeviceService{repo: d.DeviceRepo},
+		Devices:   &DeviceService{repo: d.DeviceRepo, bus: d.Bus},
 	}
+}
+
+func deviceEvent(action string, d repository.Device) eventbus.Event {
+	return eventbus.Event{Type: "device." + action, Entity: "device", Action: action, Payload: d}
 }
 
 func taskEvent(action string, t repository.Task) eventbus.Event {

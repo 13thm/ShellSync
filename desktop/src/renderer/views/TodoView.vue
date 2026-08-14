@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Plus, Trash2, Check } from 'lucide-vue-next'
+import { ref } from 'vue'
+import { Plus, Trash2, Check, ListChecks } from 'lucide-vue-next'
 import { useTodosStore } from '../stores/todos'
 import { useTasksStore } from '../stores/tasks'
 import AppButton from '../components/ui/AppButton.vue'
@@ -13,6 +13,7 @@ const tasks = useTasksStore()
 
 const newTitle = ref('')
 const newTaskId = ref('')
+const focus = ref(false)
 
 async function add() {
   const title = newTitle.value.trim()
@@ -33,14 +34,21 @@ function taskName(id: string) {
       <span class="muted">将待办与任务 / 终端绑定，跟踪开发计划</span>
     </header>
 
-    <div class="create-row">
-      <AppInput v-model="newTitle" placeholder="新建待办…" @keyup.enter="add" />
-      <select v-model="newTaskId" class="sel">
+    <div class="composer" :class="{ 'is-focus': focus }">
+      <Plus :size="18" :stroke-width="2" class="composer__icon" />
+      <AppInput
+        v-model="newTitle"
+        placeholder="输入待办内容，回车或点击添加…"
+        @keyup.enter="add"
+        @focus="focus = true"
+        @blur="focus = false"
+      />
+      <select v-model="newTaskId" class="composer__sel" title="关联任务">
         <option value="">不关联任务</option>
         <option v-for="t in tasks.active" :key="t.id" :value="t.id">{{ t.name }}</option>
       </select>
-      <AppButton type="primary" :disabled="!newTitle.trim()" @click="add">
-        <Plus :size="16" :stroke-width="2" /> 添加
+      <AppButton type="primary" class="composer__btn" :disabled="!newTitle.trim()" @click="add">
+        添加
       </AppButton>
     </div>
 
@@ -84,12 +92,45 @@ function taskName(id: string) {
 .page__head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
 .page__head h1 { font-size: var(--font-size-2xl); font-weight: var(--font-weight-semibold); }
 .muted { color: var(--color-text-tertiary); font-size: var(--font-size-sm); }
-.create-row { display: flex; gap: 8px; margin-bottom: 16px; }
-.sel {
-  height: 32px; border: 1px solid var(--color-border-base); border-radius: var(--radius-sm);
-  background: var(--color-bg-card); color: var(--color-text-primary); font-size: var(--font-size-sm);
-  padding: 0 8px; max-width: 160px;
+/* 新建待办：一体式输入卡片 */
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 14px;
+  margin-bottom: 20px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-base);
+  border-radius: var(--radius-md);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
+.composer.is-focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-bg);
+}
+.composer__icon {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+.composer.is-focus .composer__icon {
+  color: var(--color-primary);
+}
+.composer :deep(.app-input) {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  flex: 1;
+}
+.composer :deep(.app-input:focus) {
+  box-shadow: none;
+}
+.composer__sel {
+  height: 30px; flex-shrink: 0; max-width: 150px;
+  border: 1px solid var(--color-border-base); border-radius: var(--radius-sm);
+  background: var(--color-bg-card); color: var(--color-text-primary); font-size: var(--font-size-sm);
+  padding: 0 6px;
+}
+.composer__btn { flex-shrink: 0; }
 .todo-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--color-border-light); }
 .todo-row:last-child { border-bottom: none; }
 .check {

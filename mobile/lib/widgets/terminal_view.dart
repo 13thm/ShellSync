@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:xterm/xterm.dart' as xterm;
 import '../api/ws_client.dart';
 
-/// Terminal pane backed by the xterm dart engine, wired to the daemon WS.
-/// Loads full history on subscribe, streams live output, sends input + resize.
+/// Terminal pane backed by the xterm engine, wired to the daemon WS.
 ///
-/// 移动端两个特殊处理：
-/// 1. 软键盘/输入法（尤其中文）经 xterm 引擎不可靠 → 提供底部输入栏直接发送；
-/// 2. 回车键产生 "\n"，而 shell 只认 "\r" → 发送前统一转换。
+/// 尺寸策略（tmux attach 模式）：PTY 网格跟随「当前观看/操作的客户端」。
+/// - 手机进入终端页 → 上报手机尺寸，PTY/TTY 重绘适配手机（TUI 不错位）；
+/// - daemon 广播 terminal.size → 桌面端同步对齐自己的网格，两端显示一致；
+/// - 双指缩放字号，输入栏发送命令。
 class TerminalPane extends StatefulWidget {
   const TerminalPane({required this.terminalId, required this.ws, super.key});
   final String terminalId;
@@ -24,8 +24,9 @@ class _TerminalPaneState extends State<TerminalPane> {
   final _subs = <void Function()>[];
   final _inputCtrl = TextEditingController();
   bool _showInputBar = true;
+  double _fontSize = 13;
+  double _scaleStartFont = 13;
 
-  // light theme to match the design system (§二 浅色，不搞暗黑科技感)
   static const _theme = xterm.TerminalTheme(
     background: Color(0xFFFFFFFF),
     foreground: Color(0xFF1F2329),
@@ -60,19 +61,24 @@ class _TerminalPaneState extends State<TerminalPane> {
     });
   }
 
+  void _sendResize(int cols, int rows) {
+    widget.ws.send('terminal.resize', {
+      'terminalId': widget.terminalId,
+      'cols': cols,
+      'rows': rows,
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _terminal = xterm.Terminal(maxLines: 8000);
 
-    _terminal.onOutput = (data) => _sendInput(data);
-    _terminal.onResize = (width, height, pixelWidth, pixelHeight) {
-      widget.ws.send('terminal.resize', {
-        'terminalId': widget.terminalId,
-        'cols': width,
-        'rows': height,
-      });
+    // 手机端接管尺寸：视图尺寸变化即上报（PTY 跟随手机，TUI 按手机网格重绘）
+    _terminal.onResize = (width, height, _, __) {
+      if (width > 0 && height > 0) _sendResize(width, height);
     };
+    _terminal.onOutput = (data) => _sendInput(data);
 
     final ws = widget.ws;
     _subs.add(ws.on('terminal.output', (m) {
@@ -90,22 +96,32 @@ class _TerminalPaneState extends State<TerminalPane> {
         _terminal.write(utf8.decode(base64Decode(chunk['contentB64'])));
       }
     }));
+    // 其他端（桌面）调整窗口时，daemon 广播 size：手机对齐相同网格，
+    // 保证两端渲染坐标系一致（tmux attach 语义）。
+    _subs.add(ws.on('terminal.size', (m) {
+      final p = (m['payload'] ?? {}) as Map;
+      if (p['terminalId'] != widget.terminalId) return;
+      final cols = (p['cols'] as num?)?.toInt() ?? 0;
+      final rows = (p['rows'] as num?)?.toInt() ?? 0;
+      // 主动对齐：临时摘掉 onResize 避免回声循环
+      if (cols > 0 && rows > 0 &&
+          (cols != _terminal.viewWidth || rows != _terminal.viewHeight)) {
+        final orig = _terminal.onResize;
+        _terminal.onResize = null;
+        _terminal.resize(cols, rows);
+        _terminal.onResize = orig;
+      }
+    }));
 
     // subscribe (server replies with terminal.history + live output)
     ws.request('terminal.subscribe', {'terminalId': widget.terminalId}).catchError((_) {});
 
-    // 首帧布局完成后上报实际尺寸，避免 TUI（pi/claude 等）按错误的 80x24 渲染
+    // 首帧布局完成后上报手机实际尺寸（接管 PTY）
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final cols = _terminal.viewWidth;
       final rows = _terminal.viewHeight;
-      if (cols > 0 && rows > 0) {
-        ws.send('terminal.resize', {
-          'terminalId': widget.terminalId,
-          'cols': cols,
-          'rows': rows,
-        });
-      }
+      if (cols > 0 && rows > 0) _sendResize(cols, rows);
     });
   }
 
@@ -135,13 +151,23 @@ class _TerminalPaneState extends State<TerminalPane> {
       children: [
         Expanded(
           child: GestureDetector(
-            // 点按终端区域收起输入栏，获得更大视野
             onDoubleTap: () => setState(() => _showInputBar = !_showInputBar),
+            // 双指缩放字号（单元格随之变小，列数自动变多并上报 PTY）
+            onScaleStart: (_) => _scaleStartFont = _fontSize,
+            onScaleUpdate: (details) {
+              final s = (_scaleStartFont * details.scale).clamp(8.0, 28.0);
+              if ((s - _fontSize).abs() > 0.1) setState(() => _fontSize = s);
+            },
             child: xterm.TerminalView(
               _terminal,
               autofocus: true,
               theme: _theme,
-              textStyle: const xterm.TerminalStyle(fontSize: 12),
+              textStyle: xterm.TerminalStyle(
+                fontSize: _fontSize,
+                fontFamilyFallback: const [
+                  'JetBrains Mono', 'Consolas', 'Courier New'
+                ],
+              ),
             ),
           ),
         ),
@@ -183,7 +209,6 @@ class _TerminalPaneState extends State<TerminalPane> {
               ),
             ),
             const SizedBox(width: 6),
-            // 常用控制键：Ctrl+C（中断）
             _ctrlButton('C', '\x03'),
             const SizedBox(width: 6),
             FilledButton(

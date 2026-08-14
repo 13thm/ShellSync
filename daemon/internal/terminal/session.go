@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"context"
+	"encoding/base64"
 	"log/slog"
 	"sync"
 	"time"
@@ -22,6 +23,13 @@ type Session struct {
 	id  string
 	pty pty.PTY
 	mgr *Manager
+
+	// last known PTY size (set on spawn / resize); read via Size().
+	cols int
+	rows int
+
+	// screen mirrors the PTY output for passive viewers (mobile mirror mode).
+	screen *Screen
 
 	finalizeOnce sync.Once
 	done         chan struct{} // closed when finalize completes
@@ -67,8 +75,27 @@ func (s *Session) Write(data []byte) error {
 
 // Resize changes the terminal window size.
 func (s *Session) Resize(cols, rows int) error {
-	return s.pty.Resize(cols, rows)
+	if err := s.pty.Resize(cols, rows); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.cols, s.rows = cols, rows
+	s.mu.Unlock()
+	if s.screen != nil {
+		s.screen.Resize(cols, rows)
+	}
+	return nil
 }
+
+// Size returns the last known PTY size (cols, rows).
+func (s *Session) Size() (int, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cols, s.rows
+}
+
+// Screen returns the server-side screen mirror (may be nil).
+func (s *Session) Screen() *Screen { return s.screen }
 
 // SubscribeOutput registers a handler for persisted output chunks. The returned
 // function unsubscribes.
@@ -191,6 +218,12 @@ func (s *Session) finalize() {
 
 // notifyOutput fans a flushed chunk out to output subscribers.
 func (s *Session) notifyOutput(c logstore.FlushedChunk) {
+	// feed the server-side screen mirror (mobile mirror mode)
+	if s.screen != nil && c.Direction == "stdout" {
+		if data, err := base64.StdEncoding.DecodeString(c.ContentB64); err == nil {
+			s.screen.Write(data)
+		}
+	}
 	s.mu.RLock()
 	subs := make([]OutputHandler, 0, len(s.outputSubs))
 	for _, h := range s.outputSubs {

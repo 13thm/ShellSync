@@ -103,3 +103,15 @@ func (r *DeviceRepo) Revoke(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+// Delete removes a device record entirely.
+func (r *DeviceRepo) Delete(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, "DELETE FROM devices WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}

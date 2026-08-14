@@ -28,6 +28,17 @@ export class WSClient {
 
   /** Fires whenever the connection state changes. */
   public onState?: (connected: boolean) => void
+
+  /** True when the underlying socket is open. */
+  get isConnected(): boolean {
+    return this.ws != null && this.ws.readyState === WebSocket.OPEN
+  }
+
+  /** Replace the endpoint (used by the watchdog after re-resolving). */
+  updateEndpoint(url: string, token: string) {
+    this.url = url
+    this.token = token
+  }
   /**
    * Optional: re-resolve the connection before each reconnect attempt. The
    * daemon rewrites its port/token on every start, so retrying the old URL
@@ -46,7 +57,16 @@ export class WSClient {
   }
 
   private open() {
-    const ws = new WebSocket(`${this.url}?token=${encodeURIComponent(this.token)}`)
+    let ws: WebSocket
+    try {
+      ws = new WebSocket(`${this.url}?token=${encodeURIComponent(this.token)}`)
+    } catch (e) {
+      // 同步构造失败（如 URL 无效）不会触发 onclose，必须手动安排重连，
+      // 否则会永远卡在「重连中」
+      console.error('[ws] construct failed', e)
+      this.scheduleReconnect()
+      return
+    }
     this.ws = ws
     ws.onopen = () => {
       this.backoff = 1000
@@ -54,12 +74,25 @@ export class WSClient {
     }
     ws.onmessage = (ev) => this.handleMessage(ev.data)
     ws.onclose = () => {
+      if (this.ws === ws) this.ws = null
       this.onState?.(false)
       this.scheduleReconnect()
     }
     ws.onerror = () => {
       // onclose will follow
     }
+  }
+
+  /** 强制整体重建：丢弃旧连接，用最新的 url/token 重开（看门狗/手动触发）。 */
+  forceReconnect() {
+    this.backoff = 1000
+    try {
+      this.ws?.close()
+    } catch {
+      /* ignore */
+    }
+    this.ws = null
+    this.open()
   }
 
   private scheduleReconnect() {

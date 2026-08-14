@@ -54,6 +54,20 @@ func (h *Hub) broadcastLoop() {
 	}
 }
 
+// Broadcast sends an ad-hoc message of the given type/payload to every
+// connected client.
+func (h *Hub) Broadcast(msgType string, payload any) {
+	b, err := json.Marshal(envelope{Type: msgType, Payload: payload})
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	for c := range h.conns {
+		c.trySend(b)
+	}
+	h.mu.Unlock()
+}
+
 func (h *Hub) register(c *Conn) {
 	h.mu.Lock()
 	h.conns[c] = struct{}{}

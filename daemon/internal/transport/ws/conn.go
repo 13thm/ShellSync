@@ -10,6 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/shellsync/daemon/internal/logstore"
+	"github.com/shellsync/daemon/internal/terminal"
 )
 
 // Conn is one WebSocket client connection.
@@ -23,6 +24,7 @@ type Conn struct {
 
 	mu     sync.Mutex
 	subs   map[string]*termSub // terminalID -> active subscription
+	mirror map[string]func()   // terminalID -> mirror-loop cancel
 	closed bool
 }
 
@@ -37,6 +39,7 @@ func newConn(h *Hub, c *websocket.Conn, userID string) *Conn {
 		send:     make(chan []byte, 256),
 		sendDone: make(chan struct{}),
 		subs:     map[string]*termSub{},
+		mirror:   map[string]func(){},
 	}
 }
 
@@ -123,6 +126,13 @@ func (cn *Conn) dispatch(ctx context.Context, msg rawMsg) bool {
 		}
 		json.Unmarshal(msg.Payload, &p)
 		cn.handleHistory(ctx, msg.ID, p.TerminalID, p.FromSeq, p.Limit)
+	case "terminal.mirror":
+		var p struct {
+			TerminalID string `json:"terminalId"`
+			On         bool   `json:"on"`
+		}
+		json.Unmarshal(msg.Payload, &p)
+		cn.handleMirror(msg.ID, p.TerminalID, p.On)
 	default:
 		cn.sendError(msg.ID, "unknown_type", "unknown event type: "+msg.Type)
 	}
@@ -147,6 +157,14 @@ func (cn *Conn) handleSubscribe(ctx context.Context, ref, terminalID string, fro
 
 	// replace any existing subscription
 	cn.unsubscribe(terminalID)
+
+	// report the current PTY size so clients (mobile) can align their local
+	// rendering grid with the server-side grid (important for TUI apps).
+	if cols, rows := sess.Size(); cols > 0 && rows > 0 {
+		cn.sendJSON(envelope{Type: "terminal.size", Payload: map[string]any{
+			"terminalId": terminalID, "cols": cols, "rows": rows,
+		}})
+	}
 
 	outCancel := sess.SubscribeOutput(func(c logstore.FlushedChunk) {
 		if c.Direction != "stdout" {
@@ -198,11 +216,96 @@ func (cn *Conn) handleResize(ref, terminalID string, cols, rows int) {
 		cn.sendError(ref, "not_running", "terminal not running")
 		return
 	}
+	// skip no-op resizes to avoid broadcast loops between clients
+	if curCols, curRows := sess.Size(); curCols == cols && curRows == rows {
+		return
+	}
 	if err := sess.Resize(cols, rows); err != nil {
 		cn.sendError(ref, "io_error", err.Error())
 		return
 	}
+	// broadcast the new size to every subscriber so passive viewers
+	// (mobile) can re-align their local grid with the PTY.
+	cn.hub.Broadcast("terminal.size", map[string]any{
+		"terminalId": terminalID, "cols": cols, "rows": rows,
+	})
 }
+
+// handleMirror toggles mirror mode: the server pushes rendered screen
+// snapshots (plain lines) to this client, throttled, whenever output changes.
+// This is what mobile clients use instead of replaying raw escape sequences.
+func (cn *Conn) handleMirror(ref, terminalID string, on bool) {
+	// stop any existing mirror loop
+	cn.stopMirror(terminalID)
+	if !on {
+		cn.sendJSON(envelope{Type: "terminal.mirror", Ref: ref, OK: true, Payload: map[string]any{"terminalId": terminalID, "on": false}})
+		return
+	}
+	sess, alive := cn.hub.terminals.Session(terminalID)
+	if !alive {
+		cn.sendError(ref, "not_running", "terminal not running")
+		return
+	}
+	scr := sess.Screen()
+	if scr == nil {
+		cn.sendError(ref, "unavailable", "screen mirror unavailable")
+		return
+	}
+
+	// immediate snapshot
+	cn.sendScreen(terminalID, scr)
+
+	stop := make(chan struct{})
+	cn.mu.Lock()
+	if cn.closed {
+		cn.mu.Unlock()
+		close(stop)
+		return
+	}
+	cn.mirror[terminalID] = func() { close(stop) }
+	cn.mu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-cn.sendDone:
+				return
+			case <-ticker.C:
+				if scr.IsDirty() {
+					cn.sendScreen(terminalID, scr)
+				}
+			}
+		}
+	}()
+
+	cn.sendJSON(envelope{Type: "terminal.mirror", Ref: ref, OK: true, Payload: map[string]any{"terminalId": terminalID, "on": true}})
+}
+
+func (cn *Conn) sendScreen(terminalID string, scr *terminal.Screen) {
+	lines, cols, rows := scr.Snapshot()
+	cn.sendJSON(envelope{Type: "terminal.screen", Payload: map[string]any{
+		"terminalId": terminalID,
+		"lines":      lines,
+		"cols":       cols,
+		"rows":       rows,
+	}})
+}
+
+func (cn *Conn) stopMirror(terminalID string) {
+	cn.mu.Lock()
+	cancel := cn.mirror[terminalID]
+	delete(cn.mirror, terminalID)
+	cn.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// unsubscribe stops the mirror loop too when a client unsubscribes.
 
 func (cn *Conn) handleHistory(ctx context.Context, ref, terminalID string, fromSeq int64, limit int) {
 	if limit <= 0 {
@@ -242,6 +345,7 @@ func (cn *Conn) sendHistory(ctx context.Context, terminalID string, fromSeq int6
 }
 
 func (cn *Conn) unsubscribe(terminalID string) {
+	cn.stopMirror(terminalID)
 	cn.mu.Lock()
 	sub := cn.subs[terminalID]
 	delete(cn.subs, terminalID)
@@ -324,8 +428,13 @@ func (cn *Conn) close(ctx context.Context) {
 	cn.closed = true
 	subs := cn.subs
 	cn.subs = map[string]*termSub{}
+	mirrors := cn.mirror
+	cn.mirror = map[string]func(){}
 	cn.mu.Unlock()
 
+	for _, cancel := range mirrors {
+		cancel()
+	}
 	for _, s := range subs {
 		if s.output != nil {
 			s.output()

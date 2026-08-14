@@ -26,10 +26,14 @@ export const useConnectionStore = defineStore('connection', () => {
       const realtime = useRealtimeStore()
       // WS 断线重连前重新解析 daemon 连接（daemon 重启后端口/token 会变）
       realtime.init(conn.wsUrl, conn.token, async () => {
-        const fresh = await window.daemon.connect()
-        if (!fresh) return null
-        configureHttp(fresh.baseUrl, fresh.token)
-        return { url: fresh.wsUrl, token: fresh.token }
+        try {
+          const fresh = await window.daemon.connect()
+          if (!fresh) return null
+          configureHttp(fresh.baseUrl, fresh.token)
+          return { url: fresh.wsUrl, token: fresh.token }
+        } catch {
+          return null // 保畵上次已知地址继续重试
+        }
       })
       realtime.onState = (c) => (wsConnected.value = c)
 

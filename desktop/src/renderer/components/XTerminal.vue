@@ -40,6 +40,7 @@ const terminals = useTerminalsStore()
 
 let term: Terminal | null = null
 let fit: FitAddon | null = null
+let suppressFitOnce = false // 对齐远端尺寸后跳过一次本端 fit，避免来回抢
 let ro: ResizeObserver | null = null
 let offs: Array<() => void> = []
 
@@ -85,7 +86,11 @@ function encode(s: string): string {
 function sendResize() {
   if (!term || !realtime.ws) return
   try {
-    fit?.fit()
+    if (suppressFitOnce) {
+      suppressFitOnce = false // 远端对齐触发的一次 ResizeObserver 回调，跳过 fit
+    } else {
+      fit?.fit()
+    }
   } catch {
     /* ignore */
   }
@@ -137,6 +142,22 @@ onMounted(() => {
       // 同步到 store：列表状态点/终端面板横幅立刻反映
       terminals.patchStatus(props.terminalId, p.status)
       emit('status', p.status)
+    }),
+  )
+  offs.push(
+    ws.on('terminal.size', (p: any) => {
+      if (p.terminalId !== props.terminalId) return
+      // tmux attach 语义：另一端（手机）接管了 PTY 尺寸时，本地对齐相同网格，
+      // 保证两端渲染坐标系一致（内容居左，右侧留白）。
+      if (
+        term &&
+        p.cols > 0 &&
+        p.rows > 0 &&
+        (term.cols !== p.cols || term.rows !== p.rows)
+      ) {
+        suppressFitOnce = true // 对齐期间不与本端 fit 抢夺
+        term.resize(p.cols, p.rows)
+      }
     }),
   )
 

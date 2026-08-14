@@ -35,6 +35,19 @@ const dotLabel = computed(() => {
   if (conn.status === 'error') return '连接失败'
   return conn.wsConnected ? '已同步' : '重连中…'
 })
+
+/** 手动强制重连：重新解析 daemon 地址后整体重建 WS。 */
+async function forceReconnect() {
+  const client = realtime.ws
+  if (!client) return
+  try {
+    const fresh = await window.daemon.connect()
+    if (fresh) client.updateEndpoint(fresh.wsUrl, fresh.token)
+  } catch {
+    /* keep last known endpoint */
+  }
+  client.forceReconnect()
+}
 </script>
 
 <template>
@@ -58,7 +71,7 @@ const dotLabel = computed(() => {
         </RouterLink>
       </nav>
 
-      <div class="sidebar__foot">
+      <div class="sidebar__foot" @click="forceReconnect" title="点击强制重连">
         <span class="conn-dot" :style="{ background: dotColor }" />
         <span class="conn-label">{{ dotLabel }}</span>
       </div>
@@ -140,6 +153,12 @@ const dotLabel = computed(() => {
   padding: 12px 20px 4px;
   color: var(--color-text-tertiary);
   font-size: var(--font-size-xs);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.sidebar__foot:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
 }
 .conn-dot {
   width: 8px;

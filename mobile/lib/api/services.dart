@@ -50,4 +50,6 @@ class ApiService {
   }
 
   Future<void> revokeDevice(String id) => http.delete('/api/devices/$id');
+
+  Future<void> deleteDevice(String id) => http.delete('/api/devices/$id?mode=delete');
 }

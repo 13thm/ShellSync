@@ -387,7 +387,17 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
-	if err := s.Svc.Devices.Revoke(r.Context(), chi.URLParam(r, "id")); err != nil {
+	id := chi.URLParam(r, "id")
+	// ?mode=delete removes the record entirely; default keeps it revoked.
+	if r.URL.Query().Get("mode") == "delete" {
+		if err := s.Svc.Devices.Delete(r.Context(), id); err != nil {
+			fail(w, err)
+			return
+		}
+		ok(w, map[string]bool{"deleted": true})
+		return
+	}
+	if err := s.Svc.Devices.Revoke(r.Context(), id); err != nil {
 		fail(w, err)
 		return
 	}
