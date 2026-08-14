@@ -46,7 +46,7 @@ class AppState extends ChangeNotifier {
     _rest = RestClient(ep, tok);
     api = ApiService(_rest!);
 
-    final wsUrl = ep.replaceFirst(RegExp(r'^http'), 'ws') + '/ws';
+    final wsUrl = '${ep.replaceFirst(RegExp(r'^http'), 'ws')}/ws';
     ws = WsClient(wsUrl, tok);
     ws!.onState = (c) {
       wsConnected = c;
@@ -118,7 +118,11 @@ class AppState extends ChangeNotifier {
     if (json is! Map<String, dynamic>) return;
     final t = Task.fromJson(json);
     final i = tasks.indexWhere((e) => e.id == t.id);
-    if (i >= 0) tasks[i] = t; else tasks.insert(0, t);
+    if (i >= 0) {
+      tasks[i] = t;
+    } else {
+      tasks.insert(0, t);
+    }
     notifyListeners();
   }
 
@@ -135,7 +139,11 @@ class AppState extends ChangeNotifier {
     if (json is! Map<String, dynamic>) return;
     final t = Todo.fromJson(json);
     final i = todos.indexWhere((e) => e.id == t.id);
-    if (i >= 0) todos[i] = t; else todos.insert(0, t);
+    if (i >= 0) {
+      todos[i] = t;
+    } else {
+      todos.insert(0, t);
+    }
     notifyListeners();
   }
 
@@ -160,7 +168,11 @@ class AppState extends ChangeNotifier {
     if (json is! Map<String, dynamic>) return;
     final t = Terminal.fromJson(json);
     final i = terminals.indexWhere((e) => e.id == t.id);
-    if (i >= 0) terminals[i] = t; else terminals.insert(0, t);
+    if (i >= 0) {
+      terminals[i] = t;
+    } else {
+      terminals.insert(0, t);
+    }
     notifyListeners();
   }
 

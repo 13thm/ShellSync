@@ -120,18 +120,48 @@ func randomToken(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// lanIP returns the first non-loopback IPv4 address, or 127.0.0.1.
+// lanIP returns the most likely LAN IPv4 address, or 127.0.0.1.
+// Strategy: dial a remote address via UDP (no packets sent) to learn the
+// primary outbound (default-route) interface IP — this naturally picks the
+// real network adapter over virtual ones (VMware/WSL/link-local).
+// Falls back to scanning interface addrs for a private IPv4.
 func lanIP() string {
+	if ip := outboundIP(); ip != "" {
+		return ip
+	}
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return "127.0.0.1"
 	}
 	for _, a := range addrs {
-		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ip4 := ipnet.IP.To4(); ip4 != nil {
-				return ip4.String()
-			}
+		ipnet, ok := a.(*net.IPNet)
+		if !ok || ipnet.IP.IsLoopback() {
+			continue
+		}
+		ip4 := ipnet.IP.To4()
+		if ip4 == nil || ip4.IsLinkLocalUnicast() {
+			continue
+		}
+		if ip4.IsPrivate() {
+			return ip4.String()
 		}
 	}
 	return "127.0.0.1"
+}
+
+// outboundIP discovers the IP of the interface facing the default route.
+func outboundIP() string {
+	conn, err := net.Dial("udp4", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.IP == nil || addr.IP.IsLoopback() {
+		return ""
+	}
+	if ip4 := addr.IP.To4(); ip4 != nil && !ip4.IsLinkLocalUnicast() {
+		return ip4.String()
+	}
+	return ""
 }

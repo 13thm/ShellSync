@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../stores/app_state.dart';
 import '../models.dart';
-import '../widgets/status.dart';
 
 class TodosPage extends StatelessWidget {
   const TodosPage({super.key});
@@ -42,7 +41,6 @@ class _AddBar extends StatefulWidget {
 
 class _AddBarState extends State<_AddBar> {
   final _ctrl = TextEditingController();
-  bool _busy = false;
 
   @override
   void dispose() {
@@ -80,13 +78,8 @@ class _AddBarState extends State<_AddBar> {
   Future<void> _add() async {
     final title = _ctrl.text.trim();
     if (title.isEmpty) return;
-    setState(() => _busy = true);
-    try {
-      await context.read<AppState>().addTodo(title);
-      _ctrl.clear();
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    await context.read<AppState>().addTodo(title);
+    _ctrl.clear();
   }
 }
 

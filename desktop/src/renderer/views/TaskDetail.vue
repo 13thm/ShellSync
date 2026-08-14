@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, Trash2, Plus, Check, Link2 } from 'lucide-vue-next'
 import { useTasksStore } from '../stores/tasks'
 import { useTerminalsStore } from '../stores/terminals'
 import { useTodosStore } from '../stores/todos'
@@ -22,6 +22,12 @@ const todos = useTodosStore()
 const task = computed(() => tasks.items.find((t) => t.id === props.id))
 const linkedTerminals = computed(() => terminals.items.filter((t) => t.taskId === props.id))
 const linkedTodos = computed(() => todos.items.filter((t) => t.taskId === props.id))
+
+/** 未归属其它任务的终端，可供绑定。 */
+const bindableTerminals = computed(() => terminals.items.filter((t) => !t.taskId))
+const bindTerminalId = ref('')
+const newTodoTitle = ref('')
+const creatingTerm = ref(false)
 
 const editingName = ref('')
 const editingDesc = ref('')
@@ -58,6 +64,41 @@ async function remove() {
   await tasks.remove(props.id)
   router.push('/tasks')
 }
+
+/** 终端 ↔ 任务 关联 */
+async function bindTerminal() {
+  if (!bindTerminalId.value) return
+  await terminals.bindTask(bindTerminalId.value, props.id)
+  bindTerminalId.value = ''
+}
+async function unbindTerminal(termId: string) {
+  await terminals.bindTask(termId, '')
+}
+async function createTerminalForTask() {
+  const PREFERRED = ['pwsh', 'powershell', 'cmd', 'bash', 'zsh']
+  const list = terminals.shells.filter((s) => s.available)
+  let shellType = list[0]?.type ?? 'cmd'
+  for (const p of PREFERRED) {
+    if (list.some((s) => s.type === p)) {
+      shellType = p
+      break
+    }
+  }
+  creatingTerm.value = true
+  try {
+    await terminals.create({ shellType, taskId: props.id, name: (task.value?.name || '任务') + ' · 终端' })
+  } finally {
+    creatingTerm.value = false
+  }
+}
+
+/** 任务内待办 */
+async function addTodo() {
+  const title = newTodoTitle.value.trim()
+  if (!title) return
+  await todos.create({ title, taskId: props.id })
+  newTodoTitle.value = ''
+}
 </script>
 
 <template>
@@ -70,7 +111,7 @@ async function remove() {
 
     <div class="title-row">
       <StatusDot :color="taskStatusMeta(task.status).color" :size="10" />
-      <AppInput v-model="editingName" @blur="saveName" class="title-input" />
+      <AppInput v-model="editingName" :placeholder="task.name ? '' : '未命名任务，点击重命名…'" @blur="saveName" class="title-input" />
     </div>
     <div class="status-line">
       <span class="muted">{{ taskStatusMeta(task.status).label }}</span>
@@ -101,7 +142,7 @@ async function remove() {
     </AppCard>
 
     <AppCard title="关联终端">
-      <EmptyState v-if="linkedTerminals.length === 0" text="未关联终端（在终端页可将终端归属本任务）" />
+      <EmptyState v-if="linkedTerminals.length === 0" text="未关联终端：绑定已有终端，或为本任务新建一个" />
       <AppListItem
         v-for="term in linkedTerminals"
         :key="term.id"
@@ -110,23 +151,51 @@ async function remove() {
         @click="router.push('/terminals')"
       >
         <template #extra>
-          <StatusDot :color="terminalColor(term.status)" />
+          <div class="row-actions" @click.stop>
+            <StatusDot :color="terminalColor(term.status)" />
+            <AppButton type="text" size="small" @click="unbindTerminal(term.id)">解除</AppButton>
+          </div>
         </template>
       </AppListItem>
+      <div class="bind-row">
+        <select v-model="bindTerminalId" class="sel">
+          <option value="">选择未归属的终端…</option>
+          <option v-for="term in bindableTerminals" :key="term.id" :value="term.id">
+            {{ term.name }} · {{ term.shellType }}
+          </option>
+        </select>
+        <AppButton type="default" :disabled="!bindTerminalId" @click="bindTerminal">
+          <Link2 :size="14" :stroke-width="1.75" /> 绑定
+        </AppButton>
+        <AppButton type="primary" :disabled="creatingTerm || terminals.shells.length === 0" @click="createTerminalForTask">
+          <Plus :size="14" :stroke-width="2" /> 新建终端
+        </AppButton>
+      </div>
     </AppCard>
 
     <AppCard title="关联待办">
       <EmptyState v-if="linkedTodos.length === 0" text="无待办" />
-      <AppListItem
-        v-for="td in linkedTodos"
-        :key="td.id"
-        :title="td.title"
-        :desc="td.status === 'done' ? '已完成' : '待办'"
-      >
-        <template #extra>
-          <StatusDot :color="td.status === 'done' ? 'var(--color-status-done)' : 'var(--color-status-running)'" />
-        </template>
-      </AppListItem>
+      <div v-for="td in linkedTodos" :key="td.id" class="todo-row" :class="{ 'is-done': td.status === 'done' }">
+        <button
+          class="check"
+          :class="{ 'is-checked': td.status === 'done' }"
+          @click="todos.toggle(td.id, td.status !== 'done')"
+          :title="td.status === 'done' ? '恢复为待办' : '标记完成'"
+        >
+          <Check v-if="td.status === 'done'" :size="12" :stroke-width="3" />
+        </button>
+        <div class="todo-title">{{ td.title }}</div>
+      </div>
+      <div class="bind-row">
+        <AppInput
+          v-model="newTodoTitle"
+          placeholder="给本任务添加待办…"
+          @keyup.enter="addTodo"
+        />
+        <AppButton type="primary" :disabled="!newTodoTitle.trim()" @click="addTodo">
+          <Plus :size="14" :stroke-width="2" /> 添加
+        </AppButton>
+      </div>
     </AppCard>
   </div>
 
@@ -188,5 +257,64 @@ async function remove() {
 }
 :deep(.app-card) {
   margin-bottom: 16px;
+}
+.bind-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-border-light);
+}
+.bind-row .sel {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--color-border-base);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-card);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  padding: 0 8px;
+}
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.todo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+.todo-row:last-of-type {
+  border-bottom: none;
+}
+.todo-row .check {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--color-border-strong);
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-inverse);
+  flex-shrink: 0;
+}
+.todo-row .check.is-checked {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.todo-title {
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+}
+.is-done .todo-title {
+  color: var(--color-text-tertiary);
+  text-decoration: line-through;
 }
 </style>

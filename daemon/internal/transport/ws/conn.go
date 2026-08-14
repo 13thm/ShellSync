@@ -149,6 +149,9 @@ func (cn *Conn) handleSubscribe(ctx context.Context, ref, terminalID string, fro
 	cn.unsubscribe(terminalID)
 
 	outCancel := sess.SubscribeOutput(func(c logstore.FlushedChunk) {
+		if c.Direction != "stdout" {
+			return // stdin is recorded for audit only; the PTY already echoes it
+		}
 		cn.sendJSON(envelope{Type: "terminal.output", Payload: map[string]any{
 			"terminalId": terminalID,
 			"seq":        c.Seq,
@@ -219,6 +222,9 @@ func (cn *Conn) sendHistory(ctx context.Context, terminalID string, fromSeq int6
 	var toSeq int64
 	for _, c := range chs {
 		toSeq = c.Seq
+		if c.Direction != "stdout" {
+			continue // replay renders what the terminal displayed, not typed input
+		}
 		out = append(out, map[string]any{
 			"seq":        c.Seq,
 			"direction":  c.Direction,

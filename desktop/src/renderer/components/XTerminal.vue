@@ -10,12 +10,33 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useRealtimeStore } from '../stores/realtime'
+import { useTerminalsStore } from '../stores/terminals'
+
+/**
+ * 同一 terminalId 的订阅租约：Vue 对带 key 的组件更新是「新挂载 → 旧卸载」，
+ * 若旧组件卸载时立即 unsubscribe，会把新组件刚刚建立的订阅在服务端删掉。
+ * 用计数器推迟卸载 unsubscribe：短窗口内有新租约接管则跳过。
+ */
+const subLeases = new Map<string, number>()
+function acquireLease(id: string) {
+  subLeases.set(id, (subLeases.get(id) ?? 0) + 1)
+}
+function releaseLease(id: string): boolean {
+  const n = (subLeases.get(id) ?? 0) - 1
+  if (n <= 0) {
+    subLeases.delete(id)
+    return n === 0 // 从 1 → 0：真正无人观看，需要 unsubscribe
+  }
+  subLeases.set(id, n)
+  return false // 还有新租约在看，跳过 unsubscribe
+}
 
 const props = defineProps<{ terminalId: string }>()
 const emit = defineEmits<{ (e: 'status', status: string): void }>()
 
 const containerRef = ref<HTMLElement>()
 const realtime = useRealtimeStore()
+const terminals = useTerminalsStore()
 
 let term: Terminal | null = null
 let fit: FitAddon | null = null
@@ -96,18 +117,25 @@ onMounted(() => {
   offs.push(
     ws.on('terminal.history', (p: any) => {
       if (p.terminalId !== props.terminalId) return
-      for (const c of p.chunks ?? []) term?.write(decode(c.contentB64))
+      // 只回放 stdout；stdin 已由 PTY 回显，直接写入会双显
+      for (const c of p.chunks ?? []) {
+        if (c.direction && c.direction !== 'stdout') continue
+        term?.write(decode(c.contentB64))
+      }
     }),
   )
   offs.push(
     ws.on('terminal.output', (p: any) => {
       if (p.terminalId !== props.terminalId) return
+      if (p.direction && p.direction !== 'stdout') return
       term?.write(decode(p.contentB64))
     }),
   )
   offs.push(
     ws.on('terminal.status', (p: any) => {
       if (p.terminalId !== props.terminalId) return
+      // 同步到 store：列表状态点/终端面板横幅立刻反映
+      terminals.patchStatus(props.terminalId, p.status)
       emit('status', p.status)
     }),
   )
@@ -120,6 +148,7 @@ onMounted(() => {
   ro.observe(el)
 
   // subscribe + report initial size (server replies with history + live output)
+  acquireLease(props.terminalId)
   ws.request('terminal.subscribe', { terminalId: props.terminalId }).catch(() => {})
   sendResize()
 })
@@ -127,7 +156,14 @@ onMounted(() => {
 onBeforeUnmount(() => {
   offs.forEach((o) => o())
   offs = []
-  realtime.ws?.send('terminal.unsubscribe', { terminalId: props.terminalId })
+  // 推迟到宏任务之后：Vue 同一次渲染中「旧卸载→新挂载」几乎同时发生，
+  // 延迟足以让新组件的 subscribe 先到达服务端；若新租约已接管则直接跳过
+  const id = props.terminalId
+  window.setTimeout(() => {
+    if (releaseLease(id)) {
+      realtime.ws?.send('terminal.unsubscribe', { terminalId: id })
+    }
+  }, 120)
   ro?.disconnect()
   term?.dispose()
   term = null

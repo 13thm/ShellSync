@@ -20,6 +20,7 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   function upsert(task: Task) {
+    if (!task || !task.id) return
     const i = items.value.findIndex((t) => t.id === task.id)
     if (i >= 0) items.value[i] = task
     else items.value.push(task)

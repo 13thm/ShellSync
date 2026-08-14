@@ -79,7 +79,17 @@ function createTray() {
 app.whenReady().then(async () => {
   await bootstrap()
 
-  ipcMain.handle('daemon:connect', () => connection)
+  ipcMain.handle('daemon:connect', async () => {
+    // Always re-resolve: the daemon may have restarted with a new port/token
+    // since the last call, and ensureDaemon re-reads the lock / respawns it.
+    try {
+      connection = await ensureDaemon()
+    } catch (err) {
+      // keep the previous connection (if any) rather than nulling it out
+      console.error('[daemon] reconnect failed', err)
+    }
+    return connection
+  })
 
   createWindow()
   createTray()

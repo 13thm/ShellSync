@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/shellsync/daemon/internal/logstore"
 	"github.com/shellsync/daemon/internal/pty"
@@ -74,6 +75,9 @@ func (m *Manager) unregister(id string) {
 func (m *Manager) Create(ctx context.Context, opts CreateOpts) (*Session, error) {
 	if opts.ShellType == "" {
 		opts.ShellType = defaultShellName()
+	}
+	if opts.Name == "" {
+		opts.Name = fmt.Sprintf("%s %s", opts.ShellType, time.Now().Format("15:04:05"))
 	}
 	envJSON := ""
 	if len(opts.Env) > 0 {

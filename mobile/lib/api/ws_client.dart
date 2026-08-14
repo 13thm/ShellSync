@@ -103,7 +103,7 @@ class WsClient {
     final completer = Completer<dynamic>();
     _reqs[id] = completer;
     _ch?.sink.add(jsonEncode({'type': type, 'id': id, 'payload': payload ?? {}}));
-    return completer.timeout(const Duration(seconds: 8), onTimeout: () {
+    return completer.future.timeout(const Duration(seconds: 8), onTimeout: () {
       _reqs.remove(id);
       throw TimeoutException('$type timed out');
     });

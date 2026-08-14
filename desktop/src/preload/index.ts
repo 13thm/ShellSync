@@ -2,7 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 /**
  * Renderer-facing bridge. The renderer asks the main process for the daemon
- * connection (port + token + URLs) once on startup.
+ * connection (port + token + URLs). Every call re-resolves in the main
+ * process, so a daemon restart (new port/token) is always picked up.
  */
 export interface DaemonConnection {
   port: number
@@ -11,13 +12,8 @@ export interface DaemonConnection {
   wsUrl: string
 }
 
-let cached: DaemonConnection | null = null
-
 contextBridge.exposeInMainWorld('daemon', {
   async connect(): Promise<DaemonConnection | null> {
-    if (cached) return cached
-    const conn = (await ipcRenderer.invoke('daemon:connect')) as DaemonConnection | null
-    if (conn) cached = conn
-    return conn
+    return (await ipcRenderer.invoke('daemon:connect')) as DaemonConnection | null
   },
 })

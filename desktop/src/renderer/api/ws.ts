@@ -28,6 +28,12 @@ export class WSClient {
 
   /** Fires whenever the connection state changes. */
   public onState?: (connected: boolean) => void
+  /**
+   * Optional: re-resolve the connection before each reconnect attempt. The
+   * daemon rewrites its port/token on every start, so retrying the old URL
+   * forever would never recover.
+   */
+  public refresh?: () => Promise<{ url: string; token: string } | null>
 
   constructor(url: string, token: string) {
     this.url = url
@@ -59,9 +65,21 @@ export class WSClient {
   private scheduleReconnect() {
     if (this.stopped) return
     if (this.reconnectTimer) return
-    this.reconnectTimer = window.setTimeout(() => {
+    this.reconnectTimer = window.setTimeout(async () => {
       this.reconnectTimer = null
       this.backoff = Math.min(this.backoff * 1.6, 15000)
+      // daemon may have restarted with a new port/token — re-resolve first
+      if (this.refresh) {
+        try {
+          const fresh = await this.refresh()
+          if (fresh) {
+            this.url = fresh.url
+            this.token = fresh.token
+          }
+        } catch {
+          /* keep the last known url/token */
+        }
+      }
       this.open()
     }, this.backoff)
   }

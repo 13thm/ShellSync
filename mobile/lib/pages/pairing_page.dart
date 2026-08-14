@@ -3,9 +3,11 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import '../stores/app_state.dart';
 
-/// M4-2 扫码配对页：扫描 Desktop 生成的 shellsync://pair?ip=&port=&code= 二维码，
+/// M4-2 配对页：首屏让用户选择「扫码」或「手动输入」，
+/// 扫描 Desktop 生成的 shellsync://pair?ip=&port=&code= 二维码，
 /// 解析后调用 /api/pair/verify 换取 session token 并持久化。
-/// 提供手动输入兜底（开发机无摄像头时）。
+enum _PairMode { chooser, scan, manual }
+
 class PairingPage extends StatefulWidget {
   const PairingPage({super.key});
 
@@ -14,7 +16,7 @@ class PairingPage extends StatefulWidget {
 }
 
 class _PairingPageState extends State<PairingPage> {
-  bool _manual = false;
+  _PairMode _mode = _PairMode.chooser;
   bool _busy = false;
   String? _error;
 
@@ -69,15 +71,87 @@ class _PairingPageState extends State<PairingPage> {
     return (ip, port, code);
   }
 
+  void _backToChooser() => setState(() {
+        _mode = _PairMode.chooser;
+        _error = null;
+      });
+
   @override
   Widget build(BuildContext context) {
+    final Widget body;
+    switch (_mode) {
+      case _PairMode.chooser:
+        body = _chooser();
+      case _PairMode.scan:
+        body = _scannerView();
+      case _PairMode.manual:
+        body = _manualForm();
+    }
     return Scaffold(
-      appBar: AppBar(title: const Text('配对 ShellSync')),
-      body: _busy
-          ? const Center(child: CircularProgressIndicator())
-          : _manual
-              ? _manualForm()
-              : _scannerView(),
+      appBar: AppBar(
+        title: const Text('配对 ShellSync'),
+        leading: _mode == _PairMode.chooser
+            ? null
+            : IconButton(icon: const Icon(Icons.arrow_back), onPressed: _backToChooser),
+      ),
+      body: _busy ? const Center(child: CircularProgressIndicator()) : body,
+    );
+  }
+
+  /// 首屏：让用户自己选择扫码还是手动输入。
+  Widget _chooser() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Icon(Icons.devices, size: 56, color: Color(0xFF3BA776)),
+          const SizedBox(height: 12),
+          const Text(
+            '连接到电脑端',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Color(0xFF1F2329)),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '在电脑端 ShellSync「设置 → 生成配对码」后，\n扫描二维码或手动输入配对信息',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: Color(0xFF86909C), height: 1.6),
+          ),
+          const SizedBox(height: 36),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => setState(() => _mode = _PairMode.scan),
+            icon: const Icon(Icons.qr_code_scanner, size: 22),
+            label: const Text('扫码配对', style: TextStyle(fontSize: 16)),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              foregroundColor: const Color(0xFF1F2329),
+              side: const BorderSide(color: Color(0xFFE5E6EB)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => setState(() => _mode = _PairMode.manual),
+            icon: const Icon(Icons.keyboard, size: 22),
+            label: const Text('手动输入 IP / 端口 / 配对码', style: TextStyle(fontSize: 16)),
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFFE45656), fontSize: 13),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -98,8 +172,8 @@ class _PairingPageState extends State<PairingPage> {
                   child: Text(_error!, style: const TextStyle(color: Color(0xFFE45656))),
                 ),
               TextButton(
-                onPressed: () => setState(() => _manual = true),
-                child: const Text('手动输入 IP / 端口 / 配对码'),
+                onPressed: () => setState(() => _mode = _PairMode.manual),
+                child: const Text('改用手动输入'),
               ),
             ],
           ),
@@ -109,7 +183,7 @@ class _PairingPageState extends State<PairingPage> {
   }
 
   Widget _manualForm() {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -117,17 +191,21 @@ class _PairingPageState extends State<PairingPage> {
           const Text('输入电脑端「设置 → 配对」显示的信息', style: TextStyle(color: Color(0xFF4E5969))),
           const SizedBox(height: 16),
           TextField(
-              controller: _ipCtrl,
-              decoration: const InputDecoration(labelText: '电脑 IP', border: OutlineInputBorder())),
+            controller: _ipCtrl,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(labelText: '电脑 IP', border: OutlineInputBorder()),
+          ),
           const SizedBox(height: 12),
           TextField(
-              controller: _portCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: '端口', border: OutlineInputBorder())),
+            controller: _portCtrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: '端口', border: OutlineInputBorder()),
+          ),
           const SizedBox(height: 12),
           TextField(
-              controller: _codeCtrl,
-              decoration: const InputDecoration(labelText: '配对码', border: OutlineInputBorder())),
+            controller: _codeCtrl,
+            decoration: const InputDecoration(labelText: '配对码', border: OutlineInputBorder()),
+          ),
           const SizedBox(height: 20),
           FilledButton(
             onPressed: () {

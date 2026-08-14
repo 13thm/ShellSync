@@ -15,6 +15,7 @@ const router = useRouter()
 
 const newName = ref('')
 const creating = ref(false)
+const focus = ref(false)
 
 async function createTask() {
   const name = newName.value.trim()
@@ -39,14 +40,22 @@ async function createTask() {
       </div>
     </header>
 
-    <div class="create-row">
+    <div class="composer" :class="{ 'is-focus': focus }">
+      <Plus :size="18" :stroke-width="2" class="composer__icon" />
       <AppInput
         v-model="newName"
-        placeholder="新建任务…"
+        placeholder="输入任务名称，回车或点击创建…"
         @keyup.enter="createTask"
+        @focus="focus = true"
+        @blur="focus = false"
       />
-      <AppButton type="primary" :disabled="!newName.trim() || creating" @click="createTask">
-        <Plus :size="16" :stroke-width="2" /> 新建
+      <AppButton
+        type="primary"
+        class="composer__btn"
+        :disabled="!newName.trim() || creating"
+        @click="createTask"
+      >
+        创建任务
       </AppButton>
     </div>
 
@@ -58,7 +67,7 @@ async function createTask() {
       <AppListItem
         v-for="t in store.active"
         :key="t.id"
-        :title="t.name"
+        :title="t.name || '未命名任务'"
         :desc="t.description || taskStatusMeta(t.status).label"
         @click="router.push(`/tasks/${t.id}`)"
       >
@@ -89,11 +98,44 @@ async function createTask() {
   color: var(--color-text-tertiary);
   font-size: var(--font-size-sm);
 }
-.create-row {
+
+/* 新建任务：一体式输入卡片，聚焦时高亮描边 */
+.composer {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 6px 14px;
+  margin-bottom: 20px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-base);
+  border-radius: var(--radius-md);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
+.composer.is-focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-bg);
+}
+.composer__icon {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+.composer.is-focus .composer__icon {
+  color: var(--color-primary);
+}
+.composer :deep(.app-input) {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  flex: 1;
+}
+.composer :deep(.app-input:focus) {
+  box-shadow: none;
+}
+.composer__btn {
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
 .list {
   background: var(--color-bg-card);
   border: 1px solid var(--color-border-base);

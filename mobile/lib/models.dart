@@ -1,4 +1,5 @@
 /// DTOs — 必须与 daemon transport/http/dto.go 对齐（camelCase）。
+library models;
 
 class Task {
   final String id;

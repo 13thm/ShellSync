@@ -18,6 +18,7 @@ const terminals = useTerminalsStore()
 const pairCode = ref('')
 const qrDataUrl = ref('')
 const qrExpires = ref(0)
+const pairAddr = ref('') // ip:port，供手动输入配对
 const pairError = ref('')
 let pairTimer: number | null = null
 
@@ -27,6 +28,15 @@ async function genPair() {
     const res = await systemApi.pairInit()
     pairCode.value = res.pairingCode
     qrExpires.value = res.expiresAt
+    // 从二维码 payload 中解析 ip / port，供手机端手动输入
+    try {
+      const u = new URL(res.qrPayload)
+      const ip = u.searchParams.get('ip') ?? ''
+      const port = u.searchParams.get('port') ?? ''
+      pairAddr.value = port ? `${ip}:${port}` : ip
+    } catch {
+      pairAddr.value = ''
+    }
     qrDataUrl.value = await QRCode.toDataURL(res.qrPayload, { margin: 1, width: 220 })
   } catch (e: any) {
     pairError.value = e?.message ?? String(e)
@@ -75,6 +85,7 @@ async function saveGeneral() {
         <div v-if="qrDataUrl" class="pair__qr">
           <img :src="qrDataUrl" alt="配对二维码" />
           <div class="pair__code">配对码：<strong>{{ pairCode }}</strong></div>
+          <div v-if="pairAddr" class="pair__code">地址：<strong>{{ pairAddr }}</strong></div>
           <div class="pair__ttl">剩余 {{ pairCountdown() }}</div>
         </div>
         <div class="pair__actions">

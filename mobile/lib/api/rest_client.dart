@@ -14,7 +14,6 @@ class _Envelope {
 /// Thrown when the daemon returns a non-zero code.
 class ApiError implements Exception {
   final int code;
-  @override
   final String message;
   ApiError(this.code, this.message);
   @override
@@ -41,7 +40,14 @@ class RestClient {
               response.data = env.data;
               return handler.next(response);
             }
-            return handler.reject(ApiError(env.code, env.message), true);
+            return handler.reject(
+              DioException(
+                requestOptions: response.requestOptions,
+                message: env.message,
+                error: ApiError(env.code, env.message),
+              ),
+              true,
+            );
           }
           handler.next(response);
         },

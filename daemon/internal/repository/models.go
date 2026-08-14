@@ -56,47 +56,48 @@ type User struct {
 
 // Device is a paired client device.
 type Device struct {
-	ID           string
-	UserID       string
-	Name         string
-	Platform     string
-	SessionToken string
-	LastSeenAt   int64 // 0 if NULL
-	CreatedAt    int64
-	Revoked      bool
+	ID           string `json:"id"`
+	UserID       string `json:"-"`
+	Name         string `json:"name"`
+	Platform     string `json:"platform"`
+	SessionToken string `json:"-"`          // never serialized
+	LastSeenAt   int64  `json:"lastSeenAt"` // 0 if NULL
+	CreatedAt    int64  `json:"createdAt"`
+	Revoked      bool   `json:"revoked"`
 }
 
 // Task is a business task.
+// JSON tags match the wire DTO so event payloads are directly usable by clients.
 type Task struct {
-	ID          string
-	UserID      string
-	Name        string
-	Description string
-	Status      string // pending|running|paused|done
-	Color       string
-	Archived    bool
-	CreatedAt   int64
-	UpdatedAt   int64
+	ID          string `json:"id"`
+	UserID      string `json:"-"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"` // pending|running|paused|done
+	Color       string `json:"color"`
+	Archived    bool   `json:"archived"`
+	CreatedAt   int64  `json:"createdAt"`
+	UpdatedAt   int64  `json:"updatedAt"`
 }
 
 // Terminal is a live or historical terminal session row.
 type Terminal struct {
-	ID           string
-	UserID       string
-	TaskID       string // "" when NULL (unbound)
-	Name         string
-	ShellType    string
-	Cwd          string
-	Cols         int
-	Rows         int
-	Env          string
-	Status       string // running|exited|crashed
-	ExitCode     *int   // nil while running
-	OsPID        *int   // nil if not running
-	LastSeq      int64
-	CreatedAt    int64
-	LastActiveAt int64
-	UpdatedAt    int64
+	ID           string `json:"id"`
+	UserID       string `json:"-"`
+	TaskID       string `json:"taskId"` // "" when NULL (unbound)
+	Name         string `json:"name"`
+	ShellType    string `json:"shellType"`
+	Cwd          string `json:"cwd"`
+	Cols         int    `json:"cols"`
+	Rows         int    `json:"rows"`
+	Env          string `json:"-"`
+	Status       string `json:"status"`   // running|exited|crashed
+	ExitCode     *int   `json:"exitCode"` // nil while running
+	OsPID        *int   `json:"-"`        // nil if not running
+	LastSeq      int64  `json:"lastSeq"`
+	CreatedAt    int64  `json:"createdAt"`
+	LastActiveAt int64  `json:"lastActiveAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
 }
 
 // TerminalLog is one I/O chunk of a terminal.
@@ -111,15 +112,15 @@ type TerminalLog struct {
 
 // Todo is a todo item, optionally linked to a task/terminal.
 type Todo struct {
-	ID         string
-	UserID     string
-	TaskID     string // "" when NULL
-	TerminalID string // "" when NULL
-	Title      string
-	Content    string
-	Status     string // pending|done
-	Priority   int
-	SortOrder  int
-	CreatedAt  int64
-	UpdatedAt  int64
+	ID         string `json:"id"`
+	UserID     string `json:"-"`
+	TaskID     string `json:"taskId"`     // "" when NULL
+	TerminalID string `json:"terminalID"` // "" when NULL
+	Title      string `json:"title"`
+	Content    string `json:"content"`
+	Status     string `json:"status"` // pending|done
+	Priority   int    `json:"priority"`
+	SortOrder  int    `json:"sortOrder"`
+	CreatedAt  int64  `json:"createdAt"`
+	UpdatedAt  int64  `json:"updatedAt"`
 }

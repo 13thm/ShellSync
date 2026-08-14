@@ -316,7 +316,7 @@ func (s *Server) restartTerminal(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteTerminal(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if err := s.Svc.Terminals.Stop(r.Context(), id); err != nil {
+	if err := s.Svc.Terminals.Delete(r.Context(), id); err != nil {
 		fail(w, err)
 		return
 	}

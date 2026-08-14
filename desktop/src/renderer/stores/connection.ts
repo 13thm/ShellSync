@@ -24,7 +24,13 @@ export const useConnectionStore = defineStore('connection', () => {
       configureHttp(conn.baseUrl, conn.token)
 
       const realtime = useRealtimeStore()
-      realtime.init(conn.wsUrl, conn.token)
+      // WS 断线重连前重新解析 daemon 连接（daemon 重启后端口/token 会变）
+      realtime.init(conn.wsUrl, conn.token, async () => {
+        const fresh = await window.daemon.connect()
+        if (!fresh) return null
+        configureHttp(fresh.baseUrl, fresh.token)
+        return { url: fresh.wsUrl, token: fresh.token }
+      })
       realtime.onState = (c) => (wsConnected.value = c)
 
       await Promise.all([

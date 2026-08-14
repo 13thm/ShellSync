@@ -63,8 +63,29 @@ func (s *TerminalService) Stop(ctx context.Context, id string) error {
 	return nil
 }
 
-// Restart re-spawns an exited/crashed terminal.
+// Delete stops the live session (if any) and removes the terminal record;
+// its logs cascade-delete via FK.
+func (s *TerminalService) Delete(ctx context.Context, id string) error {
+	// mgr.Stop is a no-op when the session is not running.
+	if err := s.mgr.Stop(id); err != nil {
+		return err
+	}
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.bus.Publish(deleteEvent("terminal", id))
+	return nil
+}
+
+// Restart re-spawns an exited/crashed terminal. If the session is still live
+// it is stopped first (a user restart on a running terminal is expected to
+// respawn it, not fail).
 func (s *TerminalService) Restart(ctx context.Context, id string) (*terminal.Session, error) {
+	if _, ok := s.mgr.Get(id); ok {
+		if err := s.mgr.Stop(id); err != nil {
+			return nil, err
+		}
+	}
 	sess, err := s.mgr.Restart(ctx, id)
 	if err != nil {
 		return nil, err

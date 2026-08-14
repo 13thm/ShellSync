@@ -22,6 +22,7 @@ export const useTodosStore = defineStore('todos', () => {
   }
 
   function upsert(todo: Todo) {
+    if (!todo || !todo.id) return
     const i = items.value.findIndex((t) => t.id === todo.id)
     if (i >= 0) items.value[i] = todo
     else items.value.push(todo)

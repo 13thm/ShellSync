@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { shallowRef } from 'vue'
+import { shallowRef, ref } from 'vue'
 import { WSClient } from '../api/ws'
 import { useTasksStore } from './tasks'
 import { useTerminalsStore } from './terminals'
@@ -11,12 +11,18 @@ import { useTodosStore } from './todos'
  */
 export const useRealtimeStore = defineStore('realtime', () => {
   const ws = shallowRef<WSClient | null>(null)
+  /** Increments on every reconnect; views embed it in :key to force resubscribe. */
+  const wsSession = ref(0)
   let onState: (connected: boolean) => void = () => {}
 
-  function init(url: string, token: string) {
+  function init(url: string, token: string, refresh?: () => Promise<{ url: string; token: string } | null>) {
     if (ws.value) return
     const client = new WSClient(url, token)
-    client.onState = (c) => onState(c)
+    client.onState = (c) => {
+      if (c) wsSession.value++ // connection (re)established → views may resubscribe
+      onState(c)
+    }
+    if (refresh) client.refresh = refresh
 
     const tasks = useTasksStore()
     const terminals = useTerminalsStore()
@@ -38,5 +44,5 @@ export const useRealtimeStore = defineStore('realtime', () => {
     ws.value = client
   }
 
-  return { ws, init, set onState(fn: (c: boolean) => void) { onState = fn } }
+  return { ws, wsSession, init, set onState(fn: (c: boolean) => void) { onState = fn } }
 })
