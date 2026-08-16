@@ -36,7 +36,7 @@ type termSub struct {
 func newConn(h *Hub, c *websocket.Conn, userID string) *Conn {
 	return &Conn{
 		hub: h, c: c, userID: userID,
-		send:     make(chan []byte, 256),
+		send:     make(chan []byte, 1024),
 		sendDone: make(chan struct{}),
 		subs:     map[string]*termSub{},
 		mirror:   map[string]func(){},
@@ -143,20 +143,21 @@ func (cn *Conn) handleSubscribe(ctx context.Context, ref, terminalID string, fro
 	if limit <= 0 {
 		limit = 500
 	}
-	// history first
-	cn.sendHistory(ctx, terminalID, fromSeq, limit)
+	// replace any existing subscription
+	cn.unsubscribe(terminalID)
 
 	sess, alive := cn.hub.terminals.Session(terminalID)
 	if !alive {
+		// exited terminal: replay the FULL history so late viewers still see
+		// everything (paging until hasMore is exhausted).
+		cn.hub.logMgr.FlushResizeMarker(terminalID) // in case a resize was never followed by output
+		cn.replayHistory(ctx, terminalID, fromSeq, limit)
 		cn.sendJSON(envelope{Type: "terminal.status", Payload: map[string]any{
 			"terminalId": terminalID, "status": "exited",
 		}})
 		cn.sendJSON(envelope{Type: "terminal.subscribed", Ref: ref, OK: true, Payload: map[string]any{"terminalId": terminalID, "live": false}})
 		return
 	}
-
-	// replace any existing subscription
-	cn.unsubscribe(terminalID)
 
 	// report the current PTY size so clients (mobile) can align their local
 	// rendering grid with the server-side grid (important for TUI apps).
@@ -166,10 +167,24 @@ func (cn *Conn) handleSubscribe(ctx context.Context, ref, terminalID string, fro
 		}})
 	}
 
+	// Subscribe FIRST, but buffer live chunks while the history is being
+	// replayed. This closes the race between the DB read and the live stream:
+	// chunks flushed during the replay are queued and sent afterwards (skipping
+	// any seq already covered by the replay), so nothing is lost or duplicated.
+	var replayMu sync.Mutex
+	replaying := true
+	var pending []logstore.FlushedChunk
 	outCancel := sess.SubscribeOutput(func(c logstore.FlushedChunk) {
 		if c.Direction != "stdout" {
 			return // stdin is recorded for audit only; the PTY already echoes it
 		}
+		replayMu.Lock()
+		if replaying {
+			pending = append(pending, c)
+			replayMu.Unlock()
+			return
+		}
+		replayMu.Unlock()
 		cn.sendJSON(envelope{Type: "terminal.output", Payload: map[string]any{
 			"terminalId": terminalID,
 			"seq":        c.Seq,
@@ -189,6 +204,33 @@ func (cn *Conn) handleSubscribe(ctx context.Context, ref, terminalID string, fro
 	cn.mu.Lock()
 	cn.subs[terminalID] = &termSub{output: outCancel, status: statCancel}
 	cn.mu.Unlock()
+
+	// Flush any pending resize marker so the replayed stream ends at the
+	// terminal's current grid (a resize not yet followed by output would
+	// otherwise be missing from history and live continuation would render
+	// at a stale size).
+	cn.hub.logMgr.FlushResizeMarker(terminalID)
+
+	// replay the full history (all pages), then release the buffered live
+	// chunks that the replay did not already cover.
+	lastSeq := cn.replayHistory(ctx, terminalID, fromSeq, limit)
+	replayMu.Lock()
+	replaying = false
+	buf := pending
+	pending = nil
+	replayMu.Unlock()
+	for _, c := range buf {
+		if c.Seq <= lastSeq {
+			continue // already replayed from the DB
+		}
+		cn.sendJSON(envelope{Type: "terminal.output", Payload: map[string]any{
+			"terminalId": terminalID,
+			"seq":        c.Seq,
+			"direction":  c.Direction,
+			"contentB64": c.ContentB64,
+			"createdAt":  c.CreatedAt,
+		}})
+	}
 
 	cn.sendJSON(envelope{Type: "terminal.subscribed", Ref: ref, OK: true, Payload: map[string]any{"terminalId": terminalID, "live": true}})
 }
@@ -214,6 +256,13 @@ func (cn *Conn) handleResize(ref, terminalID string, cols, rows int) {
 	sess, alive := cn.hub.terminals.Session(terminalID)
 	if !alive {
 		cn.sendError(ref, "not_running", "terminal not running")
+		return
+	}
+	// reject degenerate grids: clients report intermediate sizes while their
+	// layout animates (e.g. a phone's expanded input panel shrinking the
+	// terminal view to a couple of rows); resizing the shared PTY to those
+	// wrecks the view on every attached client. 10x3 is the floor.
+	if cols < 10 || rows < 3 {
 		return
 	}
 	// skip no-op resizes to avoid broadcast loops between clients
@@ -314,7 +363,54 @@ func (cn *Conn) handleHistory(ctx context.Context, ref, terminalID string, fromS
 	cn.sendHistory(ctx, terminalID, fromSeq, limit)
 }
 
-// sendHistory sends a terminal.history event with a page of chunks.
+// replayHistory pages through the terminal's persisted history starting at
+// fromSeq until the end (one terminal.history event per page) and returns the
+// highest seq covered. Clients used to receive only the first page and never
+// paged via hasMore, which made long sessions appear truncated in the middle;
+// the server now always drives the full replay itself.
+func (cn *Conn) replayHistory(ctx context.Context, terminalID string, fromSeq int64, limit int) int64 {
+	if limit <= 0 {
+		limit = 500
+	}
+	last := fromSeq - 1
+	for {
+		chs, hasMore, err := cn.hub.logMgr.ReadRange(ctx, terminalID, fromSeq, limit)
+		if err != nil {
+			cn.sendError("", "io_error", err.Error())
+			return last
+		}
+		out := make([]map[string]any, 0, len(chs))
+		var toSeq int64
+		for _, c := range chs {
+			toSeq = c.Seq
+			if c.Direction != "stdout" && c.Direction != "resize" {
+				continue // replay renders what the terminal displayed; resize markers
+				// re-grid the client emulator at the point they occurred
+			}
+			out = append(out, map[string]any{
+				"seq":        c.Seq,
+				"direction":  c.Direction,
+				"contentB64": c.ContentB64,
+				"createdAt":  c.CreatedAt,
+			})
+		}
+		cn.sendJSON(envelope{Type: "terminal.history", Payload: map[string]any{
+			"terminalId": terminalID,
+			"fromSeq":    fromSeq,
+			"toSeq":      toSeq,
+			"hasMore":    hasMore,
+			"chunks":     out,
+		}})
+		if len(chs) == 0 || !hasMore {
+			return last
+		}
+		last = toSeq
+		fromSeq = toSeq + 1
+	}
+}
+
+// sendHistory sends a terminal.history event with a single page of chunks
+// (used by the explicit terminal.history.fetch paging API).
 func (cn *Conn) sendHistory(ctx context.Context, terminalID string, fromSeq int64, limit int) {
 	chs, hasMore, err := cn.hub.logMgr.ReadRange(ctx, terminalID, fromSeq, limit)
 	if err != nil {
@@ -325,8 +421,9 @@ func (cn *Conn) sendHistory(ctx context.Context, terminalID string, fromSeq int6
 	var toSeq int64
 	for _, c := range chs {
 		toSeq = c.Seq
-		if c.Direction != "stdout" {
-			continue // replay renders what the terminal displayed, not typed input
+		if c.Direction != "stdout" && c.Direction != "resize" {
+			continue // replay renders what the terminal displayed; resize markers
+			// re-grid the client emulator at the point they occurred
 		}
 		out = append(out, map[string]any{
 			"seq":        c.Seq,

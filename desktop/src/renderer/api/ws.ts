@@ -57,6 +57,8 @@ export class WSClient {
   }
 
   private open() {
+    // 单飞：已有活连接/正在建连时不重复开，防止僵尸套接字叠加
+    if (this.ws != null) return
     let ws: WebSocket
     try {
       ws = new WebSocket(`${this.url}?token=${encodeURIComponent(this.token)}`)
@@ -73,8 +75,12 @@ export class WSClient {
       this.onState?.(true)
     }
     ws.onmessage = (ev) => this.handleMessage(ev.data)
-    ws.onclose = () => {
-      if (this.ws === ws) this.ws = null
+    ws.onclose = (ev) => {
+      // 只处理「当前」套接字的事件：forceReconnect/看门狗已并旧套接字时，
+      // 旧套接字的 onclose 不应把状态打成断线、也不应再触发一轮重连
+      if (this.ws !== ws) return
+      console.warn('[ws] closed, code=', ev.code, 'reason=', ev.reason || '(none)')
+      this.ws = null
       this.onState?.(false)
       this.scheduleReconnect()
     }
@@ -86,12 +92,13 @@ export class WSClient {
   /** 强制整体重建：丢弃旧连接，用最新的 url/token 重开（看门狗/手动触发）。 */
   forceReconnect() {
     this.backoff = 1000
+    const old = this.ws
+    this.ws = null // 先置空：旧套接字的 onclose 会被当作「已废弃」忽略
     try {
-      this.ws?.close()
+      old?.close()
     } catch {
       /* ignore */
     }
-    this.ws = null
     this.open()
   }
 

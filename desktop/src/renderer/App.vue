@@ -16,7 +16,7 @@ const router = useRouter()
 
 onMounted(async () => {
   const ok = await conn.init()
-  if (ok) realtime.onState = (c) => (conn.wsConnected = c)
+  void ok // init 失败时错误状态由 dotLabel 展示；WS 状态由 realtime.wsConnected 派生
 })
 
 const nav = [

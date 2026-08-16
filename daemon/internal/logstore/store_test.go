@@ -227,3 +227,57 @@ func TestArchiveOlderThan(t *testing.T) {
 		t.Fatalf("archive = %q", string(data))
 	}
 }
+
+// Resize markers must (a) coalesce a burst of resizes into the final size,
+// (b) land in the stream strictly BEFORE the first output produced at that
+// size, and (c) be flushable immediately on demand (client subscribe).
+func TestResizeMarkerCoalescing(t *testing.T) {
+	mgr, repo, termID, _ := setupManager(t)
+	ctx := context.Background()
+
+	// Simulate a layout animation: many resizes, no output in between.
+	mgr.SetPendingResize(termID, 93, 35)
+	mgr.SetPendingResize(termID, 47, 36)
+	mgr.SetPendingResize(termID, 47, 24)
+	// Output arrives at the settled size.
+	if err := mgr.Append(termID, "stdout", []byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	mgr.Close(termID) // flush remaining
+
+	chunks, _, err := repo.ReadRange(ctx, termID, 1, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dirs []string
+	for _, c := range chunks {
+		dirs = append(dirs, c.Direction)
+	}
+	// exactly one marker, before the output, carrying the final size
+	if len(chunks) != 2 || chunks[0].Direction != "resize" || chunks[1].Direction != "stdout" {
+		t.Fatalf("want [resize, stdout], got %v", dirs)
+	}
+	raw, _ := base64.StdEncoding.DecodeString(chunks[0].ContentB64)
+	if string(raw) != `{"cols":47,"rows":24}` {
+		t.Fatalf("marker payload = %s", raw)
+	}
+
+	// FlushResizeMarker emits a pending marker without waiting for output.
+	if err := mgr.Register(ctx, termID); err != nil {
+		t.Fatal(err)
+	}
+	mgr.SetPendingResize(termID, 120, 30)
+	mgr.FlushResizeMarker(termID)
+	after, _, err := repo.ReadRange(ctx, termID, 1, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := after[len(after)-1]
+	if last.Direction != "resize" {
+		t.Fatalf("want trailing resize marker, got %s", last.Direction)
+	}
+	raw2, _ := base64.StdEncoding.DecodeString(last.ContentB64)
+	if string(raw2) != `{"cols":120,"rows":30}` {
+		t.Fatalf("flushed marker payload = %s", raw2)
+	}
+}

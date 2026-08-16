@@ -15,6 +15,11 @@ class TerminalSessionPage extends StatefulWidget {
 }
 
 class _TerminalSessionPageState extends State<TerminalSessionPage> {
+  final _paneKey = GlobalKey<TerminalPaneState>();
+
+  /// 刷新：重建本地终端并重新订阅，等同「返回列表再点进来」。
+  void _refresh() => _paneKey.currentState?.refresh();
+
   @override
   Widget build(BuildContext context) {
     final app = context.read<AppState>();
@@ -37,12 +42,17 @@ class _TerminalSessionPageState extends State<TerminalSessionPage> {
                 child: Text('重连中…', style: TextStyle(color: Color(0xFFE0A13C), fontSize: 13)),
               ),
             ),
+          IconButton(
+            tooltip: '刷新（重新加载终端）',
+            icon: const Icon(Icons.refresh),
+            onPressed: _refresh,
+          ),
         ],
       ),
       body: SafeArea(
         child: app.ws == null
             ? const Center(child: CircularProgressIndicator())
-            : TerminalPane(terminalId: t.id, ws: app.ws!),
+            : TerminalPane(key: _paneKey, terminalId: t.id, ws: app.ws!),
       ),
     );
   }

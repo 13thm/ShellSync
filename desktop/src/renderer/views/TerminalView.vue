@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { Plus, RotateCcw, X, Trash2, Search } from 'lucide-vue-next'
+import { Plus, RotateCcw, RefreshCw, X, Trash2, Search } from 'lucide-vue-next'
 import { useTerminalsStore } from '../stores/terminals'
 import { useRealtimeStore } from '../stores/realtime'
 import AppButton from '../components/ui/AppButton.vue'
@@ -15,6 +15,12 @@ const realtime = useRealtimeStore()
 
 const activeId = ref<string>('')
 const search = ref('')
+// 刷新会话：自增后作为 XTerminal 的 key，强制重挂载组件，
+// 等同「离开终端页再重新进入」——重新订阅、重拉历史、重建本地终端。
+const viewEpoch = ref(0)
+function refreshTerminal() {
+  viewEpoch.value++
+}
 
 const availableShells = computed(() => store.shells.filter((s) => s.available))
 const active = computed(() => store.items.find((t) => t.id === activeId.value))
@@ -190,6 +196,9 @@ async function renameActive() {
             <span class="muted">· {{ active.shellType }}</span>
           </div>
           <div class="term-host__actions">
+            <AppButton type="text" size="small" @click="refreshTerminal">
+              <RefreshCw :size="14" :stroke-width="1.75" /> 刷新
+            </AppButton>
             <AppButton type="text" size="small" @click="restart">
               <RotateCcw :size="14" :stroke-width="1.75" /> 重启
             </AppButton>
@@ -208,7 +217,7 @@ async function renameActive() {
             <AppButton type="primary" size="small" @click="restart">重启</AppButton>
             <AppButton type="text" size="small" danger @click="closeTerminal">删除</AppButton>
           </div>
-          <XTerminal :key="active.id + ':' + active.status + ':' + active.updatedAt + ':' + realtime.wsSession" :terminal-id="active.id" />
+          <XTerminal :key="active.id + ':' + active.status + ':' + active.updatedAt + ':' + viewEpoch" :terminal-id="active.id" />
         </div>
       </template>
     </section>

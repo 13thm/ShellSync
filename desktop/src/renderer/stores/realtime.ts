@@ -13,14 +13,15 @@ export const useRealtimeStore = defineStore('realtime', () => {
   const ws = shallowRef<WSClient | null>(null)
   /** Increments on every reconnect; views embed it in :key to force resubscribe. */
   const wsSession = ref(0)
-  let onState: (connected: boolean) => void = () => {}
+  /** WS 是否已连接（含重连后恢复）。状态灯直接读它。 */
+  const wsConnected = ref(false)
 
   function init(url: string, token: string, refresh?: () => Promise<{ url: string; token: string } | null>) {
     if (ws.value) return
     const client = new WSClient(url, token)
     client.onState = (c) => {
+      wsConnected.value = c
       if (c) wsSession.value++ // connection (re)established → views may resubscribe
-      onState(c)
       if (c) {
         stopWatchdog()
       } else {
@@ -75,5 +76,5 @@ export const useRealtimeStore = defineStore('realtime', () => {
     }
   }
 
-  return { ws, wsSession, init, set onState(fn: (c: boolean) => void) { onState = fn } }
+  return { ws, wsSession, wsConnected, init }
 })

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { configureHttp } from '../api/client'
 import { useRealtimeStore } from './realtime'
 import { useTasksStore } from './tasks'
@@ -13,7 +13,10 @@ export type ConnStatus = 'idle' | 'connecting' | 'ready' | 'error'
 export const useConnectionStore = defineStore('connection', () => {
   const status = ref<ConnStatus>('idle')
   const error = ref('')
-  const wsConnected = ref(false)
+  // 直接派生自 realtime store（自持 wsConnected）；曾经用 accessor 回调同步，
+  // 但 Pinia setup store 的 accessor 属性会被拷贝丢失，回调永远不触发，
+  // 状态灯永远卡在「重连中」。
+  const wsConnected = computed(() => useRealtimeStore().wsConnected)
 
   async function init(): Promise<boolean> {
     status.value = 'connecting'
@@ -35,7 +38,6 @@ export const useConnectionStore = defineStore('connection', () => {
           return null // 保畵上次已知地址继续重试
         }
       })
-      realtime.onState = (c) => (wsConnected.value = c)
 
       await Promise.all([
         useTasksStore().load(),

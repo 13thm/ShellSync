@@ -1,6 +1,9 @@
 package logstore
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Aggregator collects raw bytes for one (terminal, direction) and flushes them
 // to the store as sequence-numbered chunks, coalescing bursts by time and size.
@@ -56,8 +59,18 @@ func (a *Aggregator) stop() {
 	<-a.done
 }
 
-// flush persists one chunk under a freshly allocated sequence number.
+// flush persists one chunk under a freshly allocated sequence number. For
+// stdout it first emits any pending resize marker, guaranteeing the stream
+// records the grid change *before* the output produced at the new size —
+// clients replaying history re-grid their emulator at exactly that point.
 func (a *Aggregator) flush(data []byte) {
+	if a.direction == "stdout" {
+		if cols, rows, ok := a.manager.takePendingResize(a.terminalID); ok {
+			if b, err := json.Marshal(map[string]int{"cols": cols, "rows": rows}); err == nil {
+				a.manager.flushChunk(a.terminalID, "resize", a.state.seq.Add(1), b)
+			}
+		}
+	}
 	seq := a.state.seq.Add(1)
 	a.manager.flushChunk(a.terminalID, a.direction, seq, data)
 }

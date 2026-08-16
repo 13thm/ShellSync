@@ -75,6 +75,13 @@ func (s *Session) Write(data []byte) error {
 
 // Resize changes the terminal window size.
 func (s *Session) Resize(cols, rows int) error {
+	// Record the grid change as a pending marker in the log stream. Terminals
+	// on Windows (ConPTY) emit absolute cursor positioning tied to the grid
+	// size at emit time; without the marker, replaying history at a different
+	// size makes those sequences land mid-screen and overwrite earlier content
+	// — users would see most of their scrollback vanish after re-entering.
+	// The marker is emitted lazily, coalescing resize bursts (see logstore).
+	s.mgr.logMgr.SetPendingResize(s.id, cols, rows)
 	if err := s.pty.Resize(cols, rows); err != nil {
 		return err
 	}
@@ -85,6 +92,12 @@ func (s *Session) Resize(cols, rows int) error {
 		s.screen.Resize(cols, rows)
 	}
 	return nil
+}
+
+// logResize records the current grid as the pending resize marker for the
+// terminal's log stream (emitted before its next output chunk).
+func (s *Session) logResize(cols, rows int) {
+	s.mgr.logMgr.SetPendingResize(s.id, cols, rows)
 }
 
 // Size returns the last known PTY size (cols, rows).
@@ -135,6 +148,12 @@ func (s *Session) SubscribeStatus(h StatusHandler) (cancel func()) {
 
 // start launches the read loop goroutine.
 func (s *Session) start() {
+	// Record the initial grid so history replay starts at the correct size
+	// (see Resize for why resize markers matter).
+	s.mu.RLock()
+	cols, rows := s.cols, s.rows
+	s.mu.RUnlock()
+	s.logResize(cols, rows)
 	s.wg.Add(1)
 	go s.readLoop()
 }

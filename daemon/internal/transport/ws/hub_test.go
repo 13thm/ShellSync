@@ -68,6 +68,7 @@ func dialWS(t *testing.T, hub *Hub, token string) *websocket.Conn {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
+	c.SetReadLimit(32 << 20) // history pages can be large
 	t.Cleanup(func() { c.CloseNow() })
 	return c
 }

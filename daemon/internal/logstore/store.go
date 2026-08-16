@@ -3,6 +3,7 @@ package logstore
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -45,6 +46,13 @@ type Manager struct {
 	mu     sync.Mutex
 	states map[string]*termState
 
+	// resizeMu guards pendingResizes: the terminal's current grid, waiting to
+	// be emitted as a marker chunk right before the terminal's next output
+	// flush. Coalescing here collapses resize bursts (client layout animations
+	// can fire dozens per second) into a single marker.
+	resizeMu       sync.Mutex
+	pendingResizes map[string][2]int
+
 	// OnFlush, if set, is invoked from an aggregator goroutine whenever a
 	// chunk is persisted. Set it once right after NewManager. This is the hook
 	// the terminal manager uses to broadcast new output to subscribers.
@@ -68,11 +76,12 @@ func NewManager(repo *repository.LogRepo, cfg Config) *Manager {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		repo:   repo,
-		cfg:    cfg,
-		ctx:    ctx,
-		cancel: cancel,
-		states: map[string]*termState{},
+		repo:           repo,
+		cfg:            cfg,
+		ctx:            ctx,
+		cancel:         cancel,
+		states:         map[string]*termState{},
+		pendingResizes: map[string][2]int{},
 	}
 }
 
@@ -108,6 +117,50 @@ func (m *Manager) Append(terminalID, direction string, data []byte) error {
 		return err
 	}
 	return agg.append(data)
+}
+
+// SetPendingResize records the terminal's current grid. The marker chunk is
+// emitted lazily: immediately before the terminal's next stdout flush (see
+// Aggregator.flush), so a burst of resizes with no output in between leaves
+// only the final size in the stream.
+func (m *Manager) SetPendingResize(terminalID string, cols, rows int) {
+	if cols <= 0 || rows <= 0 {
+		return
+	}
+	m.resizeMu.Lock()
+	m.pendingResizes[terminalID] = [2]int{cols, rows}
+	m.resizeMu.Unlock()
+}
+
+// takePendingResize atomically returns and clears the pending grid.
+func (m *Manager) takePendingResize(terminalID string) (int, int, bool) {
+	m.resizeMu.Lock()
+	v, ok := m.pendingResizes[terminalID]
+	delete(m.pendingResizes, terminalID)
+	m.resizeMu.Unlock()
+	return v[0], v[1], ok
+}
+
+// FlushResizeMarker persists any pending resize marker immediately. Used when
+// a client subscribes so the replayed stream ends at the terminal's current
+// grid (a resize with no output after it would otherwise never be logged).
+func (m *Manager) FlushResizeMarker(terminalID string) {
+	cols, rows, ok := m.takePendingResize(terminalID)
+	if !ok {
+		return
+	}
+	if err := m.Register(m.ctx, terminalID); err != nil {
+		return
+	}
+	m.mu.Lock()
+	st := m.states[terminalID]
+	m.mu.Unlock()
+	if st == nil {
+		return
+	}
+	if b, err := json.Marshal(map[string]int{"cols": cols, "rows": rows}); err == nil {
+		m.flushChunk(terminalID, "resize", st.seq.Add(1), b)
+	}
 }
 
 // aggregator returns the aggregator for (terminalID, direction), creating and

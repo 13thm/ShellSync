@@ -419,7 +419,7 @@ CREATE TABLE sync_cursors (
 | 方向 | type | payload | 说明 |
 |---|---|---|---|
 | C→S | `terminal.subscribe` | `{terminalId}` | 订阅某终端输出；服务端先推送历史快照事件 |
-| S→C | `terminal.history` | `{terminalId, fromSeq, toSeq, chunks:[{seq,direction,contentB64,createdAt}]}` | 历史日志（可分多条，按 seq 升序；大历史分页） |
+| S→C | `terminal.history` | `{terminalId, fromSeq, toSeq, chunks:[{seq,direction,contentB64,createdAt}]}` | 历史日志（可分多条，按 seq 升序；大历史分页）。`direction` 只含 `stdout` 与 `resize`；客户端遇 `resize` 标记时应将本地终端网格重设为该尺寸（payload 为 `{cols,rows}` JSON），再继续写入后续字节 —— Windows ConPTY 的绝对光标定位绑定发出时的屏幕尺寸，不按标记重设会导致重放时内容被原地覆盖、滚动历史丢失 |
 | C→S | `terminal.history.fetch` | `{terminalId, fromSeq, limit}` | 主动拉取更早历史（向上滚动加载） |
 | C→S | `terminal.input` | `{terminalId, dataB64}` | 向终端 stdin 写入字节 |
 | C→S | `terminal.resize` | `{terminalId, cols, rows}` | 调整 PTY 尺寸 |
