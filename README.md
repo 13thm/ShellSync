@@ -1,5 +1,7 @@
 # ShellSync
 
+
+
 **双端持久化终端任务管理系统** —— 一个由 Go 守护进程 + Electron 桌面端 + Flutter 手机端组成的局域网终端管理工具。
 
 ## 项目组成
@@ -43,9 +45,3 @@
 | `start.md` | 各项目的环境准备与启动步骤 |
 | `setup-flutter-env.ps1` | Windows 下配置 Flutter 环境变量（PATH + 国内镜像 PUB_HOSTED_URL）的一次性脚本 |
 
-## 开发进度
-
-- ✅ M1 daemon 基础设施（配置/生命周期/数据库/PTY/日志/终端管理）
-- ✅ M2 daemon 完整功能（service / REST / 鉴权 / 配对 / WebSocket / 事件总线）
-- ✅ M3 Desktop 客户端（Electron + Vue3）
-- ✅ M4 Mobile 客户端（Flutter，代码完成、静态检查通过，待真机验证）
