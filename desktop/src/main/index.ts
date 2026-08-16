@@ -7,6 +7,9 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let connection: DaemonConnection | null = null
 
+// 应用图标（窗口 + 托盘共用），开发态位于项目根 resources/ 目录
+const iconPath = join(app.getAppPath(), 'resources', 'icon.png')
+
 async function bootstrap() {
   try {
     connection = await ensureDaemon()
@@ -26,6 +29,7 @@ function createWindow() {
     autoHideMenuBar: true,
     title: 'ShellSync',
     backgroundColor: '#F7F8FA',
+    icon: iconPath,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
@@ -35,6 +39,12 @@ function createWindow() {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  // Destroyed windows must be dereferenced, else tray clicks would call
+  // methods on a destroyed object ("Object has been destroyed").
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -49,23 +59,17 @@ function createWindow() {
 }
 
 function createTray() {
-  // a tiny 16x16 transparent-ish icon (no asset bundled yet; use empty image)
-  const icon = nativeImage.createEmpty()
-  tray = new Tray(icon)
+  // 从源图缩出托盘小图标（16x16），加载失败时退回空图标
+  let trayIcon = nativeImage.createFromPath(iconPath)
+  trayIcon = trayIcon.isEmpty() ? nativeImage.createEmpty() : trayIcon.resize({ width: 16, height: 16 })
+  tray = new Tray(trayIcon)
   tray.setToolTip('ShellSync')
   const menu = Menu.buildFromTemplate([
     { label: 'ShellSync', enabled: false },
     { type: 'separator' },
     {
       label: '显示主窗口',
-      click: () => {
-        if (mainWindow) {
-          if (mainWindow.isMinimized()) mainWindow.restore()
-          mainWindow.show()
-        } else {
-          createWindow()
-        }
-      },
+      click: () => showMainWindow(),
     },
     {
       label: '退出',
@@ -73,7 +77,7 @@ function createTray() {
     },
   ])
   tray.setContextMenu(menu)
-  tray.on('click', () => mainWindow?.show())
+  tray.on('click', () => showMainWindow())
 }
 
 app.whenReady().then(async () => {
@@ -94,10 +98,19 @@ app.whenReady().then(async () => {
   createWindow()
   createTray()
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+  app.on('activate', () => showMainWindow())
 })
+
+/** Show the main window, recreating it if it was closed/destroyed. */
+function showMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  } else {
+    createWindow()
+  }
+}
 
 // Closing the window does NOT stop the daemon (it is detached). On macOS the
 // app stays in the dock/tray; elsewhere we just hide on close.
