@@ -59,6 +59,7 @@ npm run dev        # 开发模式（热更新）
 npm run build      # 产出 out/（main + preload + renderer）
 npm run preview    # 预览构建产物
 npm run typecheck  # 类型检查（主进程 + 渲染进程）
+npm run dist:win   # 打包：服务端 + 桌面端一体的 Windows 安装包（见 desktop/README.md）
 ```
 
 ---
@@ -97,10 +98,33 @@ flutter run              # 连接的设备上启动（-d <deviceId> 指定设备
 
 ### 3.4 与电脑端配对
 
-1. 电脑端启动 Desktop → 「设置 → 生成配对码」显示二维码（`shellsync://pair?ip=&port=&code=`）；
-2. 手机 App 打开 → 扫码（或手动输入）；
-3. App 自动调 `POST /api/pair/verify` 换取 token 并存入安全存储，进入主页；
-4. 之后每次启动 App 自动用已存凭证连接，无需重复扫码。
+1. 电脑端启动 Desktop → 「设置 → 生成配对码」显示二维码；
+   - 云中继在线时为 v2：`shellsync://pair?v=2&code=&lan=&cloud=&dev=`（跨网可用）；
+   - 否则退回 v1：`shellsync://pair?ip=&port=&code=`（仅同局域网）；
+2. 手机 App 打开 → 扫码（或手动输入，手动输入仅局域网）；
+3. App 先试局域网直连，不通则走云隧道完成 `POST /api/pair/verify`，
+   token 存入安全存储后进入主页；
+4. 之后每次启动 App 自动用已存凭证连接（局域网优先→云回落），无需重复扫码。
+
+---
+
+## 3A. 云中继(dev 联调)
+
+```bash
+# 三件套一键脚本(relay + daemon，数据目录隔离)
+scripts/dev-relay.ps1        # Windows
+scripts/dev-relay.sh         # macOS/Linux
+
+# 手工方式：
+cd server && go run ./cmd/relay-server                 # 127.0.0.1:8788
+cd daemon && SHELLSYNC_DATA_DIR=/tmp/ssd go run ./cmd/shellsync-daemon
+
+# 无手机验证隧道（模拟手机 claim→open→HTTP）：
+cd server && go run ./cmd/relay-probe -url ws://127.0.0.1:8788/ws -code <配对码> -get /health
+```
+
+生产部署（VPS + Caddy + TLS）见 [deploy/relay/README.md](./deploy/relay/README.md)；
+设计文档见 [doc/跨网络改造/](./doc/跨网络改造/)。
 
 ---
 
@@ -109,6 +133,8 @@ flutter run              # 连接的设备上启动（-d <deviceId> 指定设备
 | 问题 | 处理 |
 |------|------|
 | Desktop 提示找不到 daemon | 先按 §1 编译出 `daemon/bin/ssd(.exe)`，或设 `SHELLSYNC_DAEMON` 环境变量 |
+| `dist:win` 报找不到 go | 打包需要 Go 在 PATH 里（daemon 由 `npm run build:daemon` 现场编译）；或先手动把二进制放到 `daemon/bin/ssd.exe` 再单独跑 `npx electron-builder` |
 | 手机连不上电脑 | 确认同一局域网、电脑防火墙放行 daemon 端口、Android 已允许明文流量 |
+| 手机在外网/流量下想连电脑 | 默认走云中继（电脑端设置页可开/关）；生产部署见 [deploy/relay/README.md](./deploy/relay/README.md)；自托管 frp 方案见 [deploy/README.md](./deploy/README.md) |
 | 想彻底重置 daemon | 删除 `~/.shellsync/`（lock + 数据库）后重启 |
 | 端口被占用 | 见 daemon 启动日志中的端口配置说明（config 包支持环境变量覆盖） |

@@ -20,6 +20,7 @@ import (
 	"github.com/shellsync/daemon/internal/service"
 	"github.com/shellsync/daemon/internal/terminal"
 	transporthttp "github.com/shellsync/daemon/internal/transport/http"
+	"github.com/shellsync/daemon/internal/transport/relay"
 	"github.com/shellsync/daemon/internal/transport/ws"
 )
 
@@ -49,6 +50,8 @@ func run() error {
 		"httpPort", cfg.HTTPPort,
 		"logLevel", cfg.LogLevel,
 		"logRetention", cfg.LogRetention,
+		"cloudEnabled", cfg.Cloud.Enabled,
+		"cloudURL", cfg.Cloud.URL,
 	)
 
 	// --- M1-3: single instance lock ---
@@ -144,7 +147,30 @@ func run() error {
 		slog.Warn("write port to lock", "err", err)
 	}
 	svc.Pair.SetPort(port)
-	slog.Info("http listening", "port", port, "token", lock.Token())
+
+	// --- cloud relay (cross-network pairing/access) ---
+	identity, err := relay.LoadOrCreateIdentity(ctx, settingsRepo)
+	if err != nil {
+		return fmt.Errorf("relay identity: %w", err)
+	}
+	cloudEnabled := cfg.Cloud.Enabled
+	if v, ok, err := settingsRepo.Get(ctx, config.SettingsKeyCloudEnabled); err == nil && ok {
+		cloudEnabled = v == "true"
+	}
+	relayMgr := relay.NewManager(relay.Options{
+		URL:       cfg.Cloud.URL,
+		HCPort:    port,
+		DevID:     identity.DevID,
+		DevSecret: identity.DevSecret,
+		Log:       slog.Default(),
+	}, cloudEnabled)
+	if cloudEnabled {
+		relayMgr.Start(ctx)
+	}
+	defer relayMgr.Stop()
+	svc.Pair.SetRelay(relayMgr)
+	httpServer.Cloud = relayMgr
+	slog.Info("cloud relay", "enabled", cloudEnabled, "url", cfg.Cloud.URL, "devId", identity.DevID)
 
 	fmt.Printf("ShellSync daemon %s ready (pid=%d, port=%d, data=%s)\n", Version, os.Getpid(), port, cfg.DataDir)
 

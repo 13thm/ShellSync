@@ -1,0 +1,12 @@
+services:
+  frps:
+    # frp server：把家里/公司电脑上的 ShellSync daemon 端口中转到这台 VPS 的公网端口。
+    # 镜像默认读取 /etc/frp/frps.toml
+    image: snowdreamtech/frps:latest
+    container_name: frps
+    restart: unless-stopped
+    # host 网络模式（Linux VPS）：frps 直接监听宿主机端口，
+    # 无需在 ports 里逐个映射 bindPort / 每个转发端口
+    network_mode: host
+    volumes:
+      - ./frps.toml:/etc/frp/frps.toml:ro

@@ -1,0 +1,5 @@
+time=2026-08-16T23:48:45.762+08:00 level=INFO msg="config loaded" dataDir=C:\Users\thm\.shellsync httpPort=0 logLevel=info logRetention=7
+time=2026-08-16T23:48:45.773+08:00 level=INFO msg="lock acquired" path=C:\Users\thm\.shellsync\daemon.lock pid=12076
+time=2026-08-16T23:48:45.775+08:00 level=INFO msg="database ready"
+ShellSync daemon dev ready (pid=12076, port=57957, data=C:\Users\thm\.shellsync)
+time=2026-08-16T23:48:45.777+08:00 level=INFO msg="http listening" port=57957 token=90225246e83a19c46662c0f95761b0befb7a415d336d8f6fffbc11768f5e4cf3

@@ -32,6 +32,8 @@ function resolveDaemonPath(): string | null {
     // packaged
     join(process.resourcesPath ?? '', 'daemon', 'ssd.exe'),
     join(process.resourcesPath ?? '', 'daemon', 'shellsync-daemon.exe'),
+    join(process.resourcesPath ?? '', 'daemon', 'ssd'),
+    join(process.resourcesPath ?? '', 'daemon', 'shellsync-daemon'),
   ].filter(Boolean) as string[]
   return candidates.find((p) => existsSync(p)) ?? null
 }

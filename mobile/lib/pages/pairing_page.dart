@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import '../stores/app_state.dart';
+import '../stores/pair_target.dart';
 
 /// M4-2 配对页：首屏让用户选择「扫码」或「手动输入」，
-/// 扫描 Desktop 生成的 shellsync://pair?ip=&port=&code= 二维码，
-/// 解析后调用 /api/pair/verify 换取 session token 并持久化。
+/// 扫描 Desktop 生成的 shellsync://pair 二维码（v2 含 lan+cloud+dev，
+/// v1 只有 ip/port），解析后先试局域网、失败走云隧道完成配对。
 enum _PairMode { chooser, scan, manual }
 
 class PairingPage extends StatefulWidget {
@@ -36,13 +37,13 @@ class _PairingPageState extends State<PairingPage> {
     super.dispose();
   }
 
-  Future<void> _doPair({required String ip, required int port, required String code}) async {
+  Future<void> _doPair(PairTarget target) async {
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await context.read<AppState>().pair(ip: ip, port: port, code: code);
+      await context.read<AppState>().pairWith(target);
       // AppState.paired flips -> app routes to HomePage automatically
     } catch (e) {
       setState(() => _error = e.toString());
@@ -56,23 +57,12 @@ class _PairingPageState extends State<PairingPage> {
     for (final b in capture.barcodes) {
       final raw = b.rawValue;
       if (raw == null) continue;
-      final parsed = _parsePairUri(raw);
+      final parsed = PairTarget.parse(raw);
       if (parsed != null) {
-        _doPair(ip: parsed.$1, port: parsed.$2, code: parsed.$3);
+        _doPair(parsed);
         return;
       }
     }
-  }
-
-  static (String, int, String)? _parsePairUri(String raw) {
-    final uri = Uri.tryParse(raw);
-    if (uri == null || uri.scheme != 'shellsync' || uri.host != 'pair') return null;
-    final ip = uri.queryParameters['ip'];
-    final portStr = uri.queryParameters['port'];
-    final code = uri.queryParameters['code'];
-    final port = portStr == null ? null : int.tryParse(portStr);
-    if (ip == null || port == null || code == null) return null;
-    return (ip, port, code);
   }
 
   /// 进入扫码模式：创建 controller（禁用自动启动）并显式 start。
@@ -271,7 +261,7 @@ class _PairingPageState extends State<PairingPage> {
               final port = int.tryParse(_portCtrl.text.trim());
               final code = _codeCtrl.text.trim();
               if (ip.isEmpty || port == null || code.isEmpty) return;
-              _doPair(ip: ip, port: port, code: code);
+              _doPair(PairTarget(lan: '$ip:$port', code: code));
             },
             child: const Text('配对'),
           ),

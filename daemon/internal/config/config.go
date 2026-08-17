@@ -38,7 +38,29 @@ type Config struct {
 	// LogRetention is how many days terminal logs stay in the hot SQLite store
 	// before being archived to files. 0 means keep forever.
 	LogRetention int `json:"logRetention"`
+	// Cloud is the relay (cross-network) client configuration.
+	Cloud Cloud `json:"cloud"`
 }
+
+// Cloud configures the outbound connection to the ShellSync relay-server.
+// devSecret is NOT stored here — it is generated on first use and kept in
+// the settings KV store (SQLite), never in a user-editable file.
+type Cloud struct {
+	// Enabled turns the relay client on (runtime toggle persists in the
+	// settings KV under key "cloud.enabled").
+	Enabled bool `json:"enabled"`
+	// URL is the relay WebSocket endpoint.
+	// dev default: ws://127.0.0.1:8788/ws
+	// prod:       wss://relay.shellsync.example.com/ws
+	URL string `json:"url"`
+}
+
+// Cloud settings KV keys (persisted overrides / identity).
+const (
+	SettingsKeyCloudEnabled = "cloud.enabled"
+	SettingsKeyRelaySecret  = "relay.secret"
+	SettingsKeyRelayDevID   = "relay.devid"
+)
 
 // Default returns the default configuration.
 func Default() Config {
@@ -49,7 +71,13 @@ func Default() Config {
 		WSPort:       0, // reuse http port
 		LogLevel:     "info",
 		LogRetention: 7,
+		Cloud:        defaultCloud(),
 	}
+}
+
+// defaultCloud returns the dev relay defaults (enabled, local relay).
+func defaultCloud() Cloud {
+	return Cloud{Enabled: true, URL: "ws://127.0.0.1:8788/ws"}
 }
 
 func defaultDataDir() string {
@@ -97,6 +125,11 @@ func loadOrCreate(cfg Config, path string) (Config, error) {
 	}
 	if loaded.DataDir == "" {
 		loaded.DataDir = cfg.DataDir
+	}
+	// Old configs have no "cloud" section — restore defaults when absent
+	// (detected by empty URL; an explicit enabled=false keeps its URL).
+	if loaded.Cloud.URL == "" {
+		loaded.Cloud = cfg.Cloud
 	}
 	if err := loaded.EnsureDirs(); err != nil {
 		return loaded, err

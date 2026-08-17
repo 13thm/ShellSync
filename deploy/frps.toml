@@ -1,0 +1,24 @@
+# frp 服务端配置（跑在你的 VPS 上，配合 docker-compose.yml 使用）
+# ⚠️ 部署前必改：auth.token 换成你自己的随机长字符串（openssl rand -hex 16）
+
+# frp 控制端口：电脑上的 frpc 通过它建立隧道
+bindPort = 7000
+
+# 客户端接入鉴权（frpc.toml 里必须填同一个值）
+auth.token = "CHANGE_ME_TO_A_LONG_RANDOM_SECRET"
+
+# 控制连接启用 TLS（防探测/篡改）
+# （frpc.toml 需对应开 transport.tls.enable = true）
+# transport.tls.force = true   # 可选：强制所有客户端走 TLS
+
+# ── 管理面板（可选，默认不开；要开务必改掉下面默认弱口令）──────────────
+# webServer.addr = "0.0.0.0"
+# webServer.port = 7500
+# webServer.user = "admin"
+# webServer.password = "CHANGE_ME_TOO"
+
+# 允许客户端申请的转发端口范围（收紧到只放行 ShellSync 用的端口，
+# 防止拿到 token 的客户端随意占用其他端口）
+allowPorts = [
+  { start = 18787, end = 18787 },
+]

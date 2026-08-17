@@ -1,0 +1,37 @@
+# ===== OS 杂物 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+nul
+
+# ===== 日志 =====
+*.log
+
+# ===== Go 构建产物 =====
+daemon/bin/
+server/bin/
+*.exe
+*.exe~
+*.test
+coverage.out
+
+# ===== Node / Electron(desktop)=====
+node_modules/
+out/
+dist/
+
+# ===== Flutter / Dart(mobile)=====
+mobile/build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.apk
+*.aab
+
+# ===== 环境与密钥 =====
+.env
+.env.*
+
+# ===== 编辑器/IDE 临时文件 =====
+*.swp
+*~

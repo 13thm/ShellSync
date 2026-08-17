@@ -1,0 +1,26 @@
+services:
+  relay:
+    # 生产镜像;开发机也可挂源码构建:
+    # build: { context: ../../server, dockerfile: Dockerfile }
+    image: shellsync/relay-server:latest
+    restart: unless-stopped
+    network_mode: host # 只听 127.0.0.1:8788,Caddy 反代 443
+    volumes:
+      - ./config.prod.toml:/etc/relay/config.toml:ro
+    environment:
+      RELAY_CONFIG: /etc/relay/config.toml
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - relay
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}

@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/shellsync/daemon/internal/auth"
 	"github.com/shellsync/daemon/internal/service"
+	"github.com/shellsync/daemon/internal/transport/relay"
 )
 
 // Deps wires the handler dependencies.
@@ -22,6 +23,15 @@ type Deps struct {
 	Auth      *auth.Verifier
 	WS        http.Handler // /ws upgrade handler (from the ws package); nil to disable
 	Shutdown  context.CancelFunc
+	// Cloud exposes/controls the relay client (nil → no cloud section in
+	// settings responses). Implemented by transport/relay.Manager.
+	Cloud relayCloud
+}
+
+// relayCloud is the settings-surface of the relay manager.
+type relayCloud interface {
+	StatusSnapshot() relay.Status
+	SetEnabled(v bool)
 }
 
 // Server is the HTTP/REST server.

@@ -10,6 +10,7 @@
 | 层 | 技术 | 说明 |
 |----|------|------|
 | 构建 | `electron-vite` + Vite 5 | 三段式构建：main / preload / renderer |
+| 打包 | `electron-builder` + NSIS | 服务端与桌面端一体打包（见下文「打包发行」） |
 | 主进程 | Electron 31 + TypeScript | 窗口、托盘、daemon 子进程管理 |
 | 渲染进程 | Vue 3 + `vue-router` + `pinia` | SPA，视图/路由/状态管理 |
 | 终端 | `@xterm/xterm` + fit/web-links 插件 | 浏览器内终端渲染 |
@@ -34,13 +35,21 @@ Renderer（src/renderer，Vue SPA）
 
 ```
 desktop/
-├── package.json                    # 依赖与脚本（dev / build / preview / typecheck）
+├── package.json                    # 依赖与脚本（dev / build / dist / typecheck）
 ├── package-lock.json               # 依赖锁定
 ├── electron.vite.config.ts         # electron-vite 配置（main/preload/renderer 三段构建，@ 别名指向 renderer）
+├── electron-builder.yml            # electron-builder 打包配置：extraResources 把 daemon 二进制放进安装包
 ├── tsconfig.json                   # TS 配置入口（引用下面两个）
 ├── tsconfig.node.json              # 主进程/preload 的 TS 配置（Node 环境）
 ├── tsconfig.web.json               # 渲染进程（Vue）的 TS 配置
 ├── .gitignore
+├── scripts/
+│   ├── build-daemon.mjs            # 编译 Go daemon 到 ../daemon/bin/（支持 DAEMON_GOOS/GOARCH 交叉编译）
+│   ├── gen_desktop_icon.ps1        # 从根目录 ShellSync.png 生成 resources/icon.ico + 方形 icon.png
+│   └── gen_icons.ps1               # 生成 Android 启动图标
+├── resources/                      # 运行时/打包资源
+│   ├── icon.ico                    # Windows 应用 + 安装包图标（多尺寸）
+│   └── icon.png                    # 窗口/托盘图标（方形 256px）
 └── src/
     ├── main/                       # ── Electron 主进程 ──
     │   ├── index.ts                # 应用入口：创建主窗口/托盘/菜单、IPC 注册、bootstrap 拉起 daemon
@@ -103,3 +112,41 @@ npm run typecheck  # 主进程 + 渲染进程类型检查
 > 开发模式下会自动查找 `../daemon/bin/ssd.exe`（或 `shellsync-daemon[.exe]`）并拉起；
 > 也可用环境变量 `SHELLSYNC_DAEMON=<路径>` 指定自定义位置。
 > 若 daemon 已在运行（存在 `~/.shellsync/daemon.lock`），则直接复用，不会重复启动。
+
+## 打包发行（服务端 + 桌面端一体）
+
+一条命令把 Go daemon 与 Electron 桌面端打成一个 Windows 安装包：
+
+```bash
+cd desktop
+npm run dist:win    # 前置：PATH 里有 Go（编译 daemon）和 Node
+```
+
+它依次执行：
+
+1. `npm run build` —— electron-vite 构建 `out/`；
+2. `npm run build:daemon` —— 编译 Go daemon 到 `daemon/bin/ssd.exe`（`-trimpath -ldflags "-s -w"`，无 CGO）；
+3. `electron-builder --win --x64` —— 按 `electron-builder.yml` 打 NSIS 安装包。
+
+安装后的目录布局（与 `src/main/daemon.ts` 的打包态查找路径对齐）：
+
+```
+<安装目录>/
+├── ShellSync.exe                  # Electron 应用
+└── resources/
+    ├── app.asar                   # out/** + resources/**（asar 内）
+    └── daemon/
+        └── ssd.exe                # extraResources 打进来的 Go 服务端，可直接 spawn
+```
+
+常用变体：
+
+| 命令 | 用途 |
+|------|------|
+| `npm run dist` | 当前平台默认目标 |
+| `npm run dist:win` | Windows x64 NSIS 安装包（`dist/ShellSync-Setup-<版本>-x64.exe`） |
+| `npm run dist:dir` | 只出免安装目录（`dist/win-unpacked/`，验证布局最快） |
+| `DAEMON_GOOS=linux npm run build:daemon` | 交叉编译其他平台的 daemon（配合 electron-builder 的 mac/linux 目标，见 yml 注释） |
+
+> 图标：`resources/icon.ico` 由 `scripts/gen_desktop_icon.ps1` 从根目录 `ShellSync.png` 生成，
+> 换图后重跑该脚本即可。

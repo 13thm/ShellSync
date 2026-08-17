@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -13,6 +14,27 @@ import (
 )
 
 const pairTTL = 2 * time.Minute
+
+// Pairing lockout policy: after maxVerifyFails consecutive wrong codes the
+// verify endpoint refuses everything for lockDuration (brakes 6-digit code
+// brute force; applies to LAN and cloud paths alike).
+const (
+	maxVerifyFails = 3
+	lockDuration   = 5 * time.Minute
+)
+
+// ErrPairingLocked is returned while the lockout window is active.
+var ErrPairingLocked = errors.New("pairing temporarily locked after repeated failures")
+
+// RelayLink is the cloud-relay surface PairService needs (implemented by
+// transport/relay.Manager). It breaks the dependency direction: service
+// never imports transport.
+type RelayLink interface {
+	Online() bool
+	ReportCode(code string, ttl time.Duration)
+	CloudHostForQR(lanIP string) string
+	DevID() string
+}
 
 type pairCode struct {
 	expiresAt time.Time
@@ -31,7 +53,7 @@ type PairVerifyResult struct {
 	Device       repository.Device `json:"device"`
 }
 
-// PairService handles device pairing (MVP: LAN, single user).
+// PairService handles device pairing (LAN + cloud relay).
 type PairService struct {
 	deviceRepo *repository.DeviceRepo
 	userID     string
@@ -39,42 +61,72 @@ type PairService struct {
 	mu    sync.Mutex
 	codes map[string]pairCode
 	port  int
+
+	// verify failure lockout (in-memory; resets on restart)
+	failCount   int
+	lockedUntil time.Time
+
+	// now is injectable for tests.
+	now func() time.Time
+
+	relay RelayLink
 }
 
 // SetPort records the HTTP port (used to build the QR payload). Call after the
 // server binds.
 func (s *PairService) SetPort(port int) { s.port = port }
 
-// Init generates a one-time pairing code.
+// SetRelay wires the cloud relay link (optional; without it the service
+// stays LAN-only and QR payloads fall back to v1).
+func (s *PairService) SetRelay(r RelayLink) { s.relay = r }
+
+// Init generates a one-time pairing code and reports it to the cloud relay
+// when connected. The QR payload is v2 when the cloud path is live (lan +
+// cloud + dev), else v1 (ip/port/code) — old apps scan both.
 func (s *PairService) Init(_ context.Context) (PairInitResult, error) {
 	code := randomDigits(6)
+	now := time.Now()
 	s.mu.Lock()
-	s.codes[code] = pairCode{expiresAt: time.Now().Add(pairTTL)}
-	s.purge()
+	s.codes[code] = pairCode{expiresAt: now.Add(pairTTL)}
+	s.purge(now)
 	s.mu.Unlock()
 
+	// cloud report (best effort; LAN pairing still works when offline)
+	if s.relay != nil && s.relay.Online() {
+		s.relay.ReportCode(code, pairTTL)
+	}
+
 	ip := lanIP()
+	expiresAt := now.Add(pairTTL)
 	return PairInitResult{
 		PairingCode: code,
-		QRPayload:   fmt.Sprintf("shellsync://pair?ip=%s&port=%d&code=%s", ip, s.port, code),
-		ExpiresAt:   time.Now().Add(pairTTL).UnixMilli(),
+		QRPayload:   s.qrPayload(ip, code),
+		ExpiresAt:   expiresAt.UnixMilli(),
 	}, nil
 }
 
-// Verify exchanges a pairing code for a device session token.
+// qrPayload builds the QR string.
+//
+//	v2 (cloud reachable):
+//	  shellsync://pair?v=2&code=<6>&lan=<ip:port>&cloud=<host[:port]>&dev=<devId>
+//	v1 (fallback):
+//	  shellsync://pair?ip=<ip>&port=<port>&code=<6>
+func (s *PairService) qrPayload(ip, code string) string {
+	if s.relay != nil && s.relay.Online() {
+		if cloud := s.relay.CloudHostForQR(ip); cloud != "" {
+			return fmt.Sprintf(
+				"shellsync://pair?v=2&code=%s&lan=%s:%d&cloud=%s&dev=%s",
+				code, ip, s.port, cloud, s.relay.DevID())
+		}
+	}
+	return fmt.Sprintf("shellsync://pair?ip=%s&port=%d&code=%s", ip, s.port, code)
+}
+
+// Verify exchanges a pairing code for a device session token. Consecutive
+// failures trigger a temporary lockout (see ErrPairingLocked).
 func (s *PairService) Verify(ctx context.Context, code, name, platform string) (PairVerifyResult, error) {
-	s.mu.Lock()
-	entry, ok := s.codes[code]
-	if ok && time.Now().After(entry.expiresAt) {
-		delete(s.codes, code)
-		ok = false
-	}
-	if ok {
-		delete(s.codes, code)
-	}
-	s.mu.Unlock()
-	if !ok {
-		return PairVerifyResult{}, ErrInvalidPairing
+	if err := s.checkCode(code); err != nil {
+		return PairVerifyResult{}, err
 	}
 
 	token := randomToken(32)
@@ -90,9 +142,42 @@ func (s *PairService) Verify(ctx context.Context, code, name, platform string) (
 	return PairVerifyResult{SessionToken: token, Device: dev}, nil
 }
 
+// checkCode validates + consumes a code and maintains the failure lockout.
+func (s *PairService) checkCode(code string) error {
+	now := s.nowOrDefault()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if now.Before(s.lockedUntil) {
+		return ErrPairingLocked
+	}
+	entry, ok := s.codes[code]
+	if ok && now.After(entry.expiresAt) {
+		delete(s.codes, code)
+		ok = false
+	}
+	if ok {
+		delete(s.codes, code) // one-time
+		s.failCount = 0
+		return nil
+	}
+	s.failCount++
+	if s.failCount >= maxVerifyFails {
+		s.lockedUntil = now.Add(lockDuration)
+		s.failCount = 0
+	}
+	return ErrInvalidPairing
+}
+
+func (s *PairService) nowOrDefault() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
 // purge removes expired codes. Caller must hold s.mu.
-func (s *PairService) purge() {
-	now := time.Now()
+func (s *PairService) purge(now time.Time) {
 	for c, e := range s.codes {
 		if now.After(e.expiresAt) {
 			delete(s.codes, c)

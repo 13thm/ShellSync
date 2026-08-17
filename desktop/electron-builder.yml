@@ -1,0 +1,62 @@
+# ShellSync Desktop 打包配置（electron-builder）
+#
+# 产物布局（Windows NSIS 安装包为例）：
+#   ShellSync/resources/app.asar            ← out/** + resources/**（Electron 应用本体）
+#   ShellSync/resources/daemon/ssd.exe      ← extraResources：Go daemon 二进制
+#
+# src/main/daemon.ts 在打包态会到 process.resourcesPath/daemon/ 下找 ssd(.exe)，
+# 因此 daemon 二进制必须放在 extraResources 的 daemon/ 目录里（见下）。
+
+appId: com.shellsync.desktop
+productName: ShellSync
+copyright: Copyright (c) 2025 ShellSync
+
+directories:
+  output: dist
+  buildResources: resources
+
+# 只打进 asar 的文件：electron-vite 构建产物 + 运行时图标
+files:
+  - out/**
+  - resources/**
+
+# Go daemon：由 `npm run build:daemon` 先编译到 ../daemon/bin/，
+# 再复制到安装目录 resources/daemon/ 下（asar 之外，可直接 spawn）。
+extraResources:
+  - from: ../daemon/bin
+    to: daemon
+    filter:
+      - ssd*
+      - shellsync-daemon*
+      - "!**/*~"   # 排除 go 构建重命名出的运行中副本备份
+
+asar: true
+
+compression: maximum
+
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  artifactName: ShellSync-Setup-${version}-${arch}.${ext}
+
+# ── 如需 macOS / Linux 发行包，解开以下注释 ──────────────────────────────
+# 注意：对应平台的 daemon 二进制名没有 .exe 后缀（ssd / shellsync-daemon），
+# 可用 `DAEMON_GOOS=darwin npm run build:daemon` 交叉编译（纯 Go，无 CGO 依赖）。
+#
+# mac:
+#   category: public.app-category.developer-tools
+#   target:
+#     - dmg
+# linux:
+#   category: Utility
+#   target:
+#     - AppImage

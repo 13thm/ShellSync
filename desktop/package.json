@@ -12,7 +12,11 @@
     "preview": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "build:daemon": "node scripts/build-daemon.mjs",
+    "dist": "npm run build && npm run build:daemon && electron-builder",
+    "dist:win": "npm run build && npm run build:daemon && electron-builder --win --x64",
+    "dist:dir": "npm run build && npm run build:daemon && electron-builder --dir"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
@@ -30,6 +34,7 @@
     "@vue/tsconfig": "^0.5.1",
     "@types/qrcode": "^1.5.5",
     "electron": "^31.0.0",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.10",

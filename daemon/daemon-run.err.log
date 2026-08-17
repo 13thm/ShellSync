@@ -1,0 +1,3 @@
+time=2026-08-18T01:11:47.663+08:00 level=INFO msg="config loaded" dataDir=C:\Users\thm\.shellsync httpPort=0 logLevel=info logRetention=7 cloudEnabled=true cloudURL=ws://39.105.37.57:8788/ws
+time=2026-08-18T01:11:47.674+08:00 level=INFO msg="another daemon instance is already running, exiting" err="shellsync daemon is already running (pid=60300, port=65117)"
+time=2026-08-18T01:11:47.675+08:00 level=INFO msg="daemon stopped"

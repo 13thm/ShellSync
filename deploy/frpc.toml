@@ -1,0 +1,26 @@
+# frp 客户端配置（跑在你的电脑上，即运行 ShellSync daemon 的机器）
+#
+# 作用：把本机 daemon 的 8787 端口，中转到 VPS 公网的 18787 端口。
+# 手机从任何网络访问 http://<VPS公网IP>:18787 即等于直连你电脑上的 daemon。
+#
+# ⚠️ 部署前必改：
+#   1. serverAddr  → 你的 VPS 公网 IP（或域名）
+#   2. auth.token  → 与 frps.toml 中完全一致
+
+serverAddr = "YOUR_VPS_PUBLIC_IP"
+serverPort = 7000
+auth.token = "CHANGE_ME_TO_A_LONG_RANDOM_SECRET"
+
+# 控制连接走 TLS（对应 frps.toml 的 transport.tls 配置）
+transport.tls.enable = true
+
+# 断线自动重连（frp 默认已开启，这里显式声明便于理解）
+transport.heartbeatInterval = 30
+transport.heartbeatTimeout = 90
+
+[[proxies]]
+name = "shellsync-daemon"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8787          # 本机 daemon 固定端口（见 README 步骤二：config.json httpPort）
+remotePort = 18787        # VPS 上对外暴露的端口（与 frps.toml 的 allowPorts 一致）

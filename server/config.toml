@@ -1,0 +1,11 @@
+# ShellSync relay-server 开发配置(dev)。
+# 生产配置见 deploy/relay/config.prod.toml。
+
+# 监听地址。dev 只听本机;生产由 Caddy 反代 443 → 127.0.0.1:8788。
+listen = "127.0.0.1:8788"
+
+# 进程内 TLS(R1 阶段恒为 false:dev 无证书,生产由 Caddy 终结 TLS)。
+tls = false
+
+# 日志级别:debug | info | warn | error
+log_level = "info"

@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os/exec"
 	"runtime"
@@ -412,6 +413,18 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	// overlay runtime cloud state (computed, not persisted)
+	if s.Cloud != nil {
+		st := s.Cloud.StatusSnapshot()
+		kv["cloud.enabled"] = fmt.Sprintf("%v", st.Enabled)
+		kv["cloud.url"] = st.URL
+		kv["cloud.state"] = st.State
+		if st.LastError != "" {
+			kv["cloud.lastError"] = st.LastError
+		} else {
+			delete(kv, "cloud.lastError")
+		}
+	}
 	ok(w, kv)
 }
 
@@ -420,6 +433,10 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(r, &kv); err != nil {
 		failCode(w, codeValidation, http.StatusBadRequest, err.Error())
 		return
+	}
+	// react to the cloud toggle before persisting the rest
+	if v, has := kv["cloud.enabled"]; has && s.Cloud != nil {
+		s.Cloud.SetEnabled(v == "true")
 	}
 	if err := s.Svc.Settings.Patch(r.Context(), kv); err != nil {
 		fail(w, err)

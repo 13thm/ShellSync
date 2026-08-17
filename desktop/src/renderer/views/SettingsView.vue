@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import QRCode from 'qrcode'
 import { Plus, Trash2 } from 'lucide-vue-next'
-import { systemApi, devicesApi } from '../api'
+import { systemApi, devicesApi, settingsApi } from '../api'
 import { useSettingsStore } from '../stores/settings'
 import { useTerminalsStore } from '../stores/terminals'
 import AppButton from '../components/ui/AppButton.vue'
@@ -28,12 +28,17 @@ async function genPair() {
     const res = await systemApi.pairInit()
     pairCode.value = res.pairingCode
     qrExpires.value = res.expiresAt
-    // 从二维码 payload 中解析 ip / port，供手机端手动输入
+    // 从二维码 payload 中解析地址（v2 取 lan，v1 取 ip/port），供手机端手动输入
     try {
       const u = new URL(res.qrPayload)
-      const ip = u.searchParams.get('ip') ?? ''
-      const port = u.searchParams.get('port') ?? ''
-      pairAddr.value = port ? `${ip}:${port}` : ip
+      const v = u.searchParams.get('v')
+      if (v === '2') {
+        pairAddr.value = u.searchParams.get('lan') ?? ''
+      } else {
+        const ip = u.searchParams.get('ip') ?? ''
+        const port = u.searchParams.get('port') ?? ''
+        pairAddr.value = port ? `${ip}:${port}` : ip
+      }
     } catch {
       pairAddr.value = ''
     }
@@ -81,6 +86,51 @@ async function saveGeneral() {
     log_retention_days: String(logRetention.value),
   })
 }
+
+// cloud relay (R1-9)：读 daemon settings 里的运行时云状态，开关写回 cloud.enabled
+const cloudState = ref('offline')
+const cloudEnabled = ref(false)
+const cloudUrl = ref('')
+const cloudError = ref('')
+let cloudTimer: number | null = null
+
+async function loadCloud() {
+  try {
+    const kv = await settingsApi.getAll()
+    cloudState.value = kv['cloud.state'] ?? 'disabled'
+    cloudEnabled.value = kv['cloud.enabled'] === 'true'
+    cloudUrl.value = kv['cloud.url'] ?? ''
+    cloudError.value = kv['cloud.lastError'] ?? ''
+  } catch {
+    /* daemon 不可达时保持上次状态 */
+  }
+}
+
+async function toggleCloud(v: boolean) {
+  cloudEnabled.value = v
+  await settingsApi.patch({ 'cloud.enabled': String(v) }).catch(() => {})
+  await loadCloud()
+}
+
+const cloudStateText = computed(() => {
+  if (!cloudEnabled.value) return '已关闭'
+  switch (cloudState.value) {
+    case 'online':
+      return '已连接'
+    case 'disabled':
+      return '已关闭'
+    default:
+      return '连接中…'
+  }
+})
+
+onMounted(() => {
+  loadCloud()
+  cloudTimer = window.setInterval(loadCloud, 3000)
+})
+onBeforeUnmount(() => {
+  if (cloudTimer) window.clearInterval(cloudTimer)
+})
 </script>
 
 <template>
@@ -126,6 +176,24 @@ async function saveGeneral() {
           </div>
         </template>
       </AppListItem>
+    </AppCard>
+
+    <AppCard title="云端中继">
+      <div class="cloud-row">
+        <div>
+          <div class="cloud-state">
+            <span :class="['cloud-dot', cloudEnabled && cloudState === 'online' ? 'cloud-dot--on' : '']"></span>
+            {{ cloudStateText }}
+            <span v-if="cloudUrl" class="cloud-url">{{ cloudUrl }}</span>
+          </div>
+          <div v-if="cloudError" class="cloud-err">{{ cloudError }}</div>
+          <p class="card-desc">开启后手机在任意网络（流量/外地）可经云中继连接本机；关闭则仅限同一局域网。局域网可用时手机会自动优先直连。</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" :checked="cloudEnabled" @change="toggleCloud(($event.target as HTMLInputElement).checked)" />
+          <span class="slider"></span>
+        </label>
+      </div>
     </AppCard>
 
     <AppCard title="终端">
@@ -179,4 +247,27 @@ async function saveGeneral() {
 .muted { color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
 .about { color: var(--color-text-tertiary); font-size: var(--font-size-sm); }
 .device-actions { display: flex; align-items: center; gap: 2px; }
+.cloud-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.cloud-state { display: flex; align-items: center; gap: 8px; font-size: var(--font-size-sm); color: var(--color-text-primary); }
+.cloud-url { color: var(--color-text-tertiary); font-size: var(--font-size-xs); }
+.cloud-err { color: var(--color-danger); font-size: var(--font-size-xs); margin-top: 4px; }
+.cloud-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--color-text-tertiary);
+  display: inline-block; flex-shrink: 0;
+}
+.cloud-dot--on { background: var(--color-success, #3BA776); }
+.switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider {
+  position: absolute; inset: 0; border-radius: 11px;
+  background: var(--color-border-base); transition: background 0.15s;
+  cursor: pointer;
+}
+.switch .slider::before {
+  content: ''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px;
+  border-radius: 50%; background: #fff; transition: transform 0.15s;
+}
+.switch input:checked + .slider { background: var(--color-primary, #3BA776); }
+.switch input:checked + .slider::before { transform: translateX(18px); }
 </style>

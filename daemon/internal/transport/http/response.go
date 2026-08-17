@@ -11,15 +11,16 @@ import (
 
 // API error codes (design §6.8).
 const (
-	codeOK           = 0
-	codeUnauthorized = 40001
-	codeForbidden    = 40003
-	codeNotFound     = 40404
-	codeValidation   = 40901
-	codeConflict     = 40909
-	codePairing      = 40910
-	codeInternal     = 50000
-	codePTY          = 50001
+	codeOK            = 0
+	codeUnauthorized  = 40001
+	codeForbidden     = 40003
+	codeNotFound      = 40404
+	codeValidation    = 40901
+	codeConflict      = 40909
+	codePairing       = 40910
+	codePairingLocked = 40911
+	codeInternal      = 50000
+	codePTY           = 50001
 )
 
 // envelope is the unified response shape {code, data, message}.
@@ -57,6 +58,8 @@ func errToCode(err error) (code, status int, msg string) {
 		return codeConflict, http.StatusConflict, err.Error()
 	case errors.Is(err, service.ErrInvalidPairing):
 		return codePairing, http.StatusBadRequest, err.Error()
+	case errors.Is(err, service.ErrPairingLocked):
+		return codePairingLocked, http.StatusTooManyRequests, err.Error()
 	case errors.Is(err, sql.ErrNoRows):
 		return codeNotFound, http.StatusNotFound, "resource not found"
 	default:

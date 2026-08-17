@@ -1,0 +1,111 @@
+
+> shellsync-desktop@0.1.0 dev
+> electron-vite dev
+
+vite v5.4.21 building SSR bundle for development...
+transforming...
+"fileURLToPath" is imported from external module "node:url" but never used in "src/main/index.ts".
+✓ 2 modules transformed.
+rendering chunks...
+out/main/index.js  5.13 kB
+✓ built in 169ms
+
+build the electron main process successfully
+
+-----
+
+vite v5.4.21 building SSR bundle for development...
+transforming...
+✓ 1 modules transformed.
+rendering chunks...
+out/preload/index.mjs  0.18 kB
+✓ built in 29ms
+
+build the electron preload files successfully
+
+-----
+
+Re-optimizing dependencies because vite config has changed
+dev server running for the electron renderer process at:
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+
+start electron app...
+
+
+
+> shellsync-desktop@0.1.0 dev
+> electron-vite dev
+
+[36mvite v5.4.21 [32mbuilding SSR bundle for development...[36m[39m
+transforming...
+"fileURLToPath" is imported from external module "node:url" but never used in "src/main/index.ts".
+[32m✓[39m 2 modules transformed.
+rendering chunks...
+[2mout/main/[22m[36mindex.js  [39m[1m[2m5.13 kB[22m[1m[22m
+[32m✓ built in 73ms[39m
+[32m
+build the electron main process successfully[39m
+[90m
+-----
+[39m
+[36mvite v5.4.21 [32mbuilding SSR bundle for development...[36m[39m
+transforming...
+[32m✓[39m 1 modules transformed.
+rendering chunks...
+[2mout/preload/[22m[36mindex.mjs  [39m[1m[2m0.18 kB[22m[1m[22m
+[32m✓ built in 7ms[39m
+[32m
+build the electron preload files successfully[39m
+[90m
+-----
+[39m
+[32mdev server running for the electron renderer process at:
+[39m
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[32m
+start electron app...
+[39m
+
+libpng warning: iCCP: known incorrect sRGB profile
+libpng warning: iCCP: known incorrect sRGB profile
+
+> shellsync-desktop@0.1.0 dev
+> electron-vite dev
+
+[36mvite v5.4.21 [32mbuilding SSR bundle for development...[36m[39m
+transforming...
+"fileURLToPath" is imported from external module "node:url" but never used in "src/main/index.ts".
+[32m✓[39m 2 modules transformed.
+rendering chunks...
+[2mout/main/[22m[36mindex.js  [39m[1m[2m5.19 kB[22m[1m[22m
+[32m✓ built in 80ms[39m
+[32m
+build the electron main process successfully[39m
+[90m
+-----
+[39m
+[36mvite v5.4.21 [32mbuilding SSR bundle for development...[36m[39m
+transforming...
+[32m✓[39m 1 modules transformed.
+rendering chunks...
+[2mout/preload/[22m[36mindex.mjs  [39m[1m[2m0.18 kB[22m[1m[22m
+[32m✓ built in 8ms[39m
+[32m
+build the electron preload files successfully[39m
+[90m
+-----
+[39m
+[32mdev server running for the electron renderer process at:
+[39m
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[32m
+start electron app...
+[39m
+
+libpng warning: iCCP: known incorrect sRGB profile
+libpng warning: iCCP: known incorrect sRGB profile
+[1040:0817/015223.172:ERROR:network_service_instance_impl.cc(600)] Network service crashed, restarting service.

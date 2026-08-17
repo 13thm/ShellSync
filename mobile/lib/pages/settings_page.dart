@@ -1,7 +1,20 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models.dart';
 import '../stores/app_state.dart';
+
+String _pathLabel(AppState app) {
+  final sync = app.wsConnected ? '已同步' : '重连中…';
+  switch (app.path) {
+    case ConnPath.lan:
+      return '局域网直连 · $sync';
+    case ConnPath.cloud:
+      return '云端中继 · $sync';
+    case null:
+      return sync;
+  }
+}
 
 /// M4-6 设置页：已配对设备管理 + 退出登录。
 class SettingsPage extends StatefulWidget {
@@ -39,10 +52,30 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           ListTile(
             title: const Text('连接状态'),
-            subtitle: Text(app.wsConnected ? '已同步' : '重连中…'),
-            leading: Icon(Icons.cloud_done,
-                color: app.wsConnected ? const Color(0xFF3BA776) : const Color(0xFFE0A13C)),
+            subtitle: Text(_pathLabel(app)),
+            leading: Icon(
+              app.path == ConnPath.cloud
+                  ? Icons.cloud
+                  : app.path == ConnPath.lan
+                      ? Icons.lan
+                      : Icons.cloud_off,
+              color: app.wsConnected
+                  ? const Color(0xFF3BA776)
+                  : const Color(0xFFE0A13C),
+            ),
+            trailing: TextButton(
+              onPressed: () => context.read<AppState>().reconnectNow(),
+              child: const Text('重连'),
+            ),
           ),
+          if (app.relayHost != null)
+            ListTile(
+              dense: true,
+              title: const Text('中继', style: TextStyle(fontSize: 13, color: Color(0xFF86909C))),
+              subtitle: Text(app.relayHost!,
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF86909C))),
+            ),
+          if (kDebugMode) _devPanel(),
           const Divider(height: 1),
           const _SectionHeader('已配对设备'),
           if (_loading)
@@ -153,4 +186,75 @@ class _SectionHeader extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         child: Text(text, style: const TextStyle(color: Color(0xFF8A909A), fontSize: 13)),
       );
+}
+
+/// 开发者面板（仅 debug 构建）：临时覆盖 relay 地址，用于 staging 真机联调
+///（《跨网络配对方案的修改计划》§2.2③）。
+Widget _devPanel() {
+  return const Padding(
+    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('开发者', style: TextStyle(color: Color(0xFF8A909A), fontSize: 13)),
+        SizedBox(height: 6),
+        _DevRelayField(),
+      ],
+    ),
+  );
+}
+
+class _DevRelayField extends StatefulWidget {
+  const _DevRelayField();
+  @override
+  State<_DevRelayField> createState() => _DevRelayFieldState();
+}
+
+class _DevRelayFieldState extends State<_DevRelayField> {
+  final _ctrl = TextEditingController();
+  bool _loaded = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final app = context.read<AppState>();
+    final cur = await app.devRelayOverride();
+    if (!_loaded) {
+      _ctrl.text = cur ?? '';
+      _loaded = true;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _load();
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _ctrl,
+            decoration: const InputDecoration(
+              isDense: true,
+              hintText: '覆盖 relay 地址(host 或 host:port,留空恢复)',
+              border: OutlineInputBorder(),
+            ),
+            style: const TextStyle(fontSize: 13),
+          ),
+        ),
+        const SizedBox(width: 8),
+        OutlinedButton(
+          onPressed: () async {
+            final app = context.read<AppState>();
+            await app.setDevRelayOverride(_ctrl.text.trim());
+            await app.reconnectNow();
+          },
+          child: const Text('应用'),
+        ),
+      ],
+    );
+  }
 }

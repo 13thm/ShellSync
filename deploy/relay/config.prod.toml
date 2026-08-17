@@ -1,0 +1,8 @@
+# 生产配置(VPS)。TLS 由 Caddy 终结,进程内关闭。
+
+# 只监听本机 —— Caddy(同 host 网络)反代 443 → 127.0.0.1:8788。
+listen = "127.0.0.1:8788"
+
+tls = false
+
+log_level = "info"

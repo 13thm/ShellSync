@@ -1,0 +1,5 @@
+# Caddy 自动签发 Let's Encrypt 证书,443 → 本机 8788。
+# 部署时把域名换成自己的。
+relay.shellsync.example.com {
+	reverse_proxy 127.0.0.1:8788
+}

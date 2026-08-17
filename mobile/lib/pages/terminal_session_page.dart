@@ -15,14 +15,14 @@ class TerminalSessionPage extends StatefulWidget {
 }
 
 class _TerminalSessionPageState extends State<TerminalSessionPage> {
-  final _paneKey = GlobalKey<TerminalPaneState>();
+  int _paneRefresh = 0;
 
   /// 刷新：重建本地终端并重新订阅，等同「返回列表再点进来」。
-  void _refresh() => _paneKey.currentState?.refresh();
+  void _refresh() => setState(() => _paneRefresh++);
 
   @override
   Widget build(BuildContext context) {
-    final app = context.read<AppState>();
+    final app = context.watch<AppState>(); // 切换局域网/云后 ws 重建 → 重新挂载终端面板
     final t = widget.terminal;
     return Scaffold(
       appBar: AppBar(
@@ -52,7 +52,10 @@ class _TerminalSessionPageState extends State<TerminalSessionPage> {
       body: SafeArea(
         child: app.ws == null
             ? const Center(child: CircularProgressIndicator())
-            : TerminalPane(key: _paneKey, terminalId: t.id, ws: app.ws!),
+            : TerminalPane(
+                key: ValueKey('${t.id}:${app.wsGen}:$_paneRefresh'),
+                terminalId: t.id,
+                ws: app.ws!),
       ),
     );
   }
